@@ -180,8 +180,4 @@ python -m unittest
 | `Sem permissão` ao abrir uma tela | O Dono precisa liberar a tela para o funcionário, na página **Usuários** |
 | O PowerShell não ativa o `.venv` | Rode `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned` e tente de novo |
 
-## 👨‍💻 Autor
-
-Desenvolvido por **SEU NOME** — [GitHub](https://github.com/SEU_USUARIO)
-
 Projeto acadêmico de Sistemas de Informação.
