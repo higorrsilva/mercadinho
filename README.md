@@ -32,7 +32,7 @@ As telas que podem ser liberadas para um funcionário são: `painel`, `caixa`, `
 Como funciona:
 
 - O login gera um **token assinado**, válido por 8 horas, que o front envia em todas as chamadas à API.
-- As permissões são verificadas **no servidor** (um funcionário recebe erro 403 se chamar uma rota que não pode, mesmo digitando o endereço direto).
+- As permissões são verificadas **no servidor**: um funcionário recebe erro 403 se chamar uma rota que não pode, mesmo digitando o endereço direto.
 - O menu lateral mostra só as telas permitidas, e cada página redireciona quem não tem acesso.
 - As senhas são salvas com **hash**.
 - Usuários são **inativados**, nunca excluídos.
@@ -41,7 +41,7 @@ Como funciona:
 
 - **Front-end:** HTML, CSS e JavaScript
 - **Back-end:** Python + Flask
-- **Banco de dados:** Supabase (PostgreSQL)
+- **Banco de dados:** Supabase (PostgreSQL), compartilhado pela equipe
 
 ## 📁 Estrutura do projeto
 
@@ -60,22 +60,28 @@ mercadinho/
 └── CLAUDE.md            # Contexto e convenções do projeto
 ```
 
-## 🚀 Como rodar o projeto
+---
+
+## 🚀 Preparando o ambiente
+
+O banco de dados (Supabase) **já está configurado e é compartilhado por toda a equipe**. Você só precisa preparar a sua máquina e conectar ao mesmo banco.
 
 ### Pré-requisitos
 
-- [Python 3.10 ou superior](https://www.python.org/downloads/)
+- [Python 3.10 ou superior](https://www.python.org/downloads/) (marque a opção **Add Python to PATH** na instalação)
 - [Git](https://git-scm.com/)
-- Uma conta e um projeto no [Supabase](https://supabase.com/)
+- Um editor de código, como o [VS Code](https://code.visualstudio.com/)
 
 ### 1. Clonar o repositório
 
 ```bash
-git clone https://github.com/SEU_USUARIO/mercadinho.git
+git clone https://github.com/olavomenezesdev/mercadinho.git
 cd mercadinho
 ```
 
 ### 2. Criar e ativar o ambiente virtual (`.venv`)
+
+O ambiente virtual isola as bibliotecas do projeto. Você cria uma vez e **ativa toda vez que for rodar o projeto**.
 
 **Windows (PowerShell):**
 
@@ -94,9 +100,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Quando o ambiente estiver ativo, o terminal mostra `(.venv)` no começo da linha.
+Quando o ambiente estiver ativo, o terminal mostra **`(.venv)`** no começo da linha.
 
 ### 3. Instalar as dependências
+
+Com o `.venv` ativo:
 
 ```bash
 pip install -r requirements.txt
@@ -104,7 +112,21 @@ pip install -r requirements.txt
 
 ### 4. Configurar o arquivo `.env`
 
-Crie um arquivo chamado `.env` na raiz do projeto (você pode copiar o modelo `.env.example`):
+O `.env` guarda os dados de conexão com o banco e **não vai para o GitHub**. Crie o arquivo na raiz do projeto (ao lado do `app.py`) copiando o modelo:
+
+**Windows (PowerShell):**
+
+```powershell
+Copy-Item .env.example .env
+```
+
+**Linux / macOS:**
+
+```bash
+cp .env.example .env
+```
+
+Depois abra o `.env` e preencha:
 
 ```env
 SUPABASE_URL=https://SEU-PROJETO.supabase.co
@@ -112,72 +134,86 @@ SUPABASE_KEY=sua-chave-do-supabase
 SECRET_KEY=um-texto-longo-e-aleatorio
 ```
 
-- **`SUPABASE_URL` e `SUPABASE_KEY`:** no painel do Supabase, em **Project Settings → API**.
-- **`SECRET_KEY`:** assina os tokens de login. Para gerar uma:
-
-  ```bash
-  python -c "import secrets; print(secrets.token_hex(32))"
-  ```
-
-> ⚠️ **Nunca envie o `.env` para o GitHub.** Ele já está no `.gitignore`.
-
-### 5. Preparar o banco de dados
-
-No Supabase, abra o **SQL Editor** e execute o comando que cria a coluna de permissões:
-
-```sql
-ALTER TABLE public.usuario
-ADD COLUMN IF NOT EXISTS permissoes text[] NOT NULL DEFAULT ARRAY[]::text[];
-```
-
-Se já houver funcionários cadastrados, libere para eles as telas padrão:
-
-```sql
-UPDATE public.usuario
-SET permissoes = ARRAY['painel','caixa','entradas','saidas','produtos']
-WHERE tipo = 'FUNCIONARIO';
-```
-
-### 6. Criar o primeiro usuário Dono
-
-O cadastro público foi removido, então o primeiro Dono é criado direto no banco. No **Table Editor** do Supabase, na tabela `usuario`, insira uma linha com:
-
-| Campo | Valor |
+| Variável | De onde vem |
 |---|---|
-| `nome` | seu nome |
-| `login` | seu login (ex.: e-mail) |
-| `senha` | uma senha qualquer (ela é convertida em hash no primeiro login) |
-| `tipo` | `DONO` |
-| `ativo` | `true` |
+| `SUPABASE_URL` | **Peça ao responsável pelo projeto** (Olavo, Bruno, Nicholas e Higor). É o mesmo valor para toda a equipe. |
+| `SUPABASE_KEY` | **Peça ao responsável pelo projeto.** É a mesma para toda a equipe. Envie e receba por mensagem privada, nunca em grupo público ou no GitHub. |
+| `SECRET_KEY` | Cada pessoa gera a sua. Ela assina os tokens de login na sua máquina. |
 
-Depois, os demais usuários são criados pelo próprio sistema, na tela **Usuários**.
+Para gerar a sua `SECRET_KEY`, rode:
 
-### 7. Iniciar o servidor
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Copie o texto que aparecer e cole no `.env` depois de `SECRET_KEY=`.
+
+> ⚠️ **Nunca envie o `.env` para o GitHub** nem compartilhe a chave do Supabase fora da equipe.
+
+### 5. Iniciar o servidor
+
+Com o `.venv` ativo:
 
 ```bash
 python app.py
 ```
 
-Abra no navegador: **http://127.0.0.1:8000**
+Quando aparecer `Running on http://127.0.0.1:8000`, abra no navegador:
 
-Para parar o servidor, use `Ctrl + C` no terminal. Sempre que alterar o código do `app.py`, pare e inicie de novo.
+**http://127.0.0.1:8000**
 
-## 🧪 Testes
+Deixe esse terminal aberto enquanto usa o sistema. Para parar, use `Ctrl + C`. **Sempre que alterar o `app.py`, pare e inicie de novo.** Para testes de API (curl, etc.), abra um segundo terminal.
 
-```bash
-python -m unittest
-```
+### 6. Entrar no sistema
 
-> ⚠️ Parte dos testes grava dados no Supabase. Prefira usar um projeto Supabase separado para testes, e não o banco de uso real.
+Use um dos usuários já cadastrados no banco (peça o login ao responsável pelo projeto):
+
+- **Dono:** vê todas as telas, inclusive **Usuários**.
+- **Funcionário:** vê apenas as telas liberadas para ele.
+
+Se precisar de um novo usuário, entre como Dono e crie pela tela **Usuários**, escolhendo quais telas ele pode acessar.
+
+---
+
+## 👥 Trabalhando em equipe
+
+Como todos usam o **mesmo banco**, tenha cuidado: o que você cadastra, altera ou apaga aparece para todo mundo.
+
+- **Não apague nem altere dados reais** do banco sem avisar a equipe.
+- **Não rode a suíte de testes completa** contra o banco compartilhado: ela grava registros de teste nele.
+- Antes de começar a trabalhar, atualize o seu código:
+
+  ```bash
+  git checkout main
+  git pull
+  ```
+
+- Trabalhe em uma **branch própria** e abra um Pull Request para a `main`:
+
+  ```bash
+  git checkout -b feat/nome-da-alteracao
+  git add .
+  git commit -m "feat: descreva o que mudou"
+  git push -u origin feat/nome-da-alteracao
+  ```
+
+- Se alguém trouxer novas bibliotecas, rode de novo `pip install -r requirements.txt` depois do `git pull`.
+- Leia o `CLAUDE.md`: ele traz as regras de negócio e as convenções do projeto.
 
 ## 🛠️ Problemas comuns
 
 | Problema | Solução |
 |---|---|
-| Telas sem dados ou erro de acesso | Entre de novo no sistema e recarregue com `Ctrl + F5` |
-| Erro ao subir o servidor | Confira se o `.venv` está ativo e se o `.env` tem as três variáveis |
-| `Credenciais inválidas` | Confira o login (sem diferença de maiúsculas) e se o usuário está `ativo` |
-| `Sem permissão` ao abrir uma tela | O Dono precisa liberar a tela para o funcionário, na página **Usuários** |
+| `python` não é reconhecido | Reinstale o Python marcando **Add Python to PATH**, ou tente `py` no lugar de `python` |
 | O PowerShell não ativa o `.venv` | Rode `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned` e tente de novo |
+| `ModuleNotFoundError` ao rodar | O `.venv` não está ativo (falta o `(.venv)` no terminal) ou faltou o `pip install -r requirements.txt` |
+| O servidor não sobe ou dá erro de variável | Confira se o `.env` está na raiz e tem as três variáveis preenchidas |
+| `Failed to connect to 127.0.0.1 port 8000` | O servidor não está rodando; inicie com `python app.py` e deixe o terminal aberto |
+| Telas sem dados ou erro de acesso | Saia, entre de novo e recarregue com `Ctrl + F5` |
+| `Credenciais inválidas` | Confira o login e a senha com o responsável pelo projeto; o usuário também precisa estar ativo |
+| `Sem permissão` ao abrir uma tela | O Dono precisa liberar a tela para esse funcionário, na página **Usuários** |
+| Alterei o código e nada mudou | Pare o servidor (`Ctrl + C`) e inicie de novo; depois recarregue o navegador com `Ctrl + F5` |
 
-Projeto acadêmico de Sistemas de Informação.
+## 👨‍💻 Autores
+
+Projeto acadêmico de Sistemas de Informação, desenvolvido por **Bruno Onishi, Olavo Menezes, Higor Rodrigues e Nicholas Cardoso**.
