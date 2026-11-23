@@ -1,6 +1,14 @@
 import apiClient, { getSessionUser, isOwner } from '../services/api/client.js';
 import './session.js';
 
+// Data e hora no formato brasileiro (dd/mm/aaaa hh:mm), no fuso do navegador.
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+};
+
 const tbody = document.getElementById('saidas-table-body');
 const API_BASE_URL = window.location.origin || 'http://127.0.0.1:8000';
 const exitModal = document.getElementById('exit-modal');
@@ -67,7 +75,7 @@ const updateExitStats = async () => {
     cards[0].textContent = String(items.length);
     cards[1].textContent = String(uniqueProducts);
     cards[2].textContent = Number(totalQuantity).toLocaleString('pt-BR');
-    cards[3].textContent = lastExit ? new Date(lastExit.data_movimentacao).toLocaleDateString('pt-BR') : '—';
+    cards[3].textContent = lastExit ? formatDateTime(lastExit.data_movimentacao).split(',')[0] : '—';
 
     const badges = document.querySelectorAll('.mini-tag');
     if (badges.length) {
@@ -239,7 +247,7 @@ const renderExits = async () => {
 
     tbody.innerHTML = pageItems.map((item) => `
       <tr>
-        <td>${item.data_movimentacao || '—'}</td>
+        <td>${formatDateTime(item.data_movimentacao)}</td>
         <td>${item.motivo || item.observacao || 'Venda'}</td>
         <td>${item.produto || 'Produto'}</td>
         <td>${item.quantidade || 0}</td>
@@ -254,7 +262,7 @@ const renderExits = async () => {
     tbody.querySelectorAll('[data-delete-movement]').forEach((button) => {
       button.addEventListener('click', async () => {
         const movementId = Number(button.dataset.deleteMovement);
-        const confirmed = await showConfirm('Deseja excluir esta saída?');
+        const confirmed = await showConfirm('Excluir esta saída? A quantidade volta para o estoque.');
         if (!movementId || !confirmed) {
           return;
         }

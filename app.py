@@ -1,7 +1,9 @@
+import logging
 import os
+import re
 from functools import wraps
 from decimal import Decimal, InvalidOperation
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 from flask import Flask, g, jsonify, redirect, request, send_from_directory
@@ -26,6 +28,47 @@ TELAS_PERMITIDAS = (
     'fornecedores'
 )
 PERMISSOES_PADRAO_FUNCIONARIO = ('painel', 'caixa', 'entradas', 'saidas', 'produtos')
+
+# Horário de Brasília (UTC-3). O Brasil não tem horário de verão desde 2019,
+# então um fuso fixo evita depender do pacote tzdata no Windows.
+FUSO_HORARIO = timezone(timedelta(hours=-3), 'America/Sao_Paulo')
+MOTIVOS_SAIDA = ('Venda', 'Perda', 'Vencimento', 'Avaria')
+MOTIVO_NA_OBSERVACAO = re.compile(r'^\[(Venda|Perda|Vencimento|Avaria)\]\s*(.*)$', re.DOTALL)
+
+logger = logging.getLogger('mercadinho')
+
+
+def _ler_dias_validade_proxima():
+    try:
+        dias = int(os.getenv('DIAS_VALIDADE_PROXIMA', '30'))
+    except ValueError:
+        return 30
+    return dias if dias > 0 else 30
+
+
+DIAS_VALIDADE_PROXIMA = _ler_dias_validade_proxima()
+ORIGENS_PERMITIDAS = {
+    origem.strip().rstrip('/')
+    for origem in os.getenv('ALLOWED_ORIGINS', 'http://127.0.0.1:8000,http://localhost:8000').split(',')
+    if origem.strip()
+}
+
+
+def agora():
+    return datetime.now(FUSO_HORARIO)
+
+
+def hoje():
+    return agora().date()
+
+
+class BancoIndisponivel(Exception):
+    """Falha ao acessar o banco. Vira uma resposta 503 com mensagem clara."""
+
+
+@app.errorhandler(BancoIndisponivel)
+def handle_banco_indisponivel(error):
+    return jsonify({'ok': False, 'message': str(error)}), 503
 
 
 @app.route('/')
@@ -113,7 +156,12 @@ def handle_internal_server_error(error):
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
+    # As telas são servidas pelo próprio Flask, então só origens conhecidas
+    # recebem permissão de CORS (configuráveis em ALLOWED_ORIGINS).
+    origem = str(request.headers.get('Origin') or '').rstrip('/')
+    if origem and origem in ORIGENS_PERMITIDAS:
+        response.headers['Access-Control-Allow-Origin'] = origem
+        response.headers['Vary'] = 'Origin'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     return response
@@ -151,7 +199,7 @@ else:
 
 def safe_query(table_name, select='*', **kwargs):
     if not supabase:
-        return []
+        raise BancoIndisponivel('Banco não configurado.')
 
     try:
         query = supabase.table(table_name).select(select)
@@ -160,8 +208,11 @@ def safe_query(table_name, select='*', **kwargs):
                 query = query.eq(key, value)
         response = query.execute()
         return response.data or []
-    except Exception:
-        return []
+    except Exception as error:
+        logger.exception('Falha ao consultar a tabela %s', table_name)
+        raise BancoIndisponivel(
+            'Não foi possível acessar o banco de dados. Verifique a conexão e tente novamente.'
+        ) from error
 
 
 def safe_insert(table_name, payload):
@@ -174,7 +225,20 @@ def safe_insert(table_name, payload):
             return response.data[0]
         return None
     except Exception:
+        logger.exception('Falha ao gravar na tabela %s', table_name)
         return None
+
+
+def safe_delete(table_name, column, value):
+    if not supabase or value is None:
+        return False
+
+    try:
+        supabase.table(table_name).delete().eq(column, value).execute()
+        return True
+    except Exception:
+        logger.exception('Falha ao excluir da tabela %s', table_name)
+        return False
 
 
 def save_user_password_hash(user_id, password_hash):
@@ -203,7 +267,12 @@ def safe_update(table_name, row_id, payload):
             return response.data[0]
         return None
     except Exception:
+        logger.exception('Falha ao atualizar a tabela %s', table_name)
         return None
+
+
+def atualizar_saldo_lote(lot_id, quantidade):
+    return safe_update('lote', lot_id, {'quantidade': str(quantidade)}) is not None
 
 
 def parse_decimal(raw_value):
@@ -421,6 +490,40 @@ def decimal_money(value):
     return Decimal(str(value or 0)).quantize(Decimal('0.01'))
 
 
+def parse_date(raw_value):
+    if raw_value in (None, ''):
+        return None
+    try:
+        return datetime.strptime(str(raw_value)[:10], '%Y-%m-%d').date()
+    except ValueError:
+        return None
+
+
+def format_date_br(value):
+    return value.strftime('%d/%m/%Y') if value else ''
+
+
+def lot_balance(lot):
+    try:
+        return parse_decimal(lot.get('quantidade', 0))
+    except ValueError:
+        return Decimal('0')
+
+
+def get_validity_map(lots=None):
+    """Menor validade, por produto, entre os lotes que ainda têm saldo."""
+    validity = {}
+    for lot in lots if lots is not None else safe_query('lote', '*'):
+        product_id = lot.get('id_produto')
+        expiry = parse_date(lot.get('data_validade'))
+        if product_id is None or expiry is None or lot_balance(lot) <= 0:
+            continue
+        key = int(product_id)
+        if key not in validity or expiry < validity[key]:
+            validity[key] = expiry
+    return validity
+
+
 def build_product_alerts():
     alerts = []
     products = safe_query('produto', '*')
@@ -429,7 +532,7 @@ def build_product_alerts():
 
     for product in products:
         product_id = product.get('id_produto')
-        if product_id is None:
+        if product_id is None or product.get('ativo') is False:
             continue
 
         try:
@@ -449,35 +552,40 @@ def build_product_alerts():
             })
 
     lots = safe_query('lote', '*')
+    today = hoje()
     for lot in lots:
-        quantity = lot.get('quantidade', 0)
-        validity = lot.get('data_validade')
-        if quantity in (None, '') or validity in (None, ''):
+        quantity = lot_balance(lot)
+        expiry = parse_date(lot.get('data_validade'))
+        if quantity <= 0 or expiry is None or lot.get('id_produto') is None:
             continue
 
-        try:
-            if parse_decimal(quantity) <= 0:
-                continue
-        except ValueError:
+        days_to_expiry = (expiry - today).days
+        if days_to_expiry > DIAS_VALIDADE_PROXIMA:
             continue
 
-        try:
-            expiry = datetime.strptime(str(validity), '%Y-%m-%d').date()
-        except ValueError:
-            continue
+        product = product_map.get(int(lot.get('id_produto')))
+        product_name = product.get('nome', 'Produto') if product else 'Produto'
+        if days_to_expiry < 0:
+            alert_type = 'LOTE_VENCIDO'
+            message = f'Lote de {product_name} venceu em {format_date_br(expiry)} e ainda tem saldo.'
+        elif days_to_expiry == 0:
+            alert_type = 'VALIDADE_PROXIMA'
+            message = f'Lote de {product_name} vence hoje.'
+        else:
+            alert_type = 'VALIDADE_PROXIMA'
+            plural = 'dia' if days_to_expiry == 1 else 'dias'
+            message = f'Lote de {product_name} vence em {days_to_expiry} {plural}.'
 
-        days_to_expiry = (expiry - datetime.utcnow().date()).days
-        if 0 <= days_to_expiry <= 30:
-            product = product_map.get(int(lot.get('id_produto')))
-            alerts.append({
-                'id_lote': lot.get('id_lote'),
-                'id_produto': lot.get('id_produto'),
-                'tipo': 'VALIDADE_PROXIMA',
-                'mensagem': f"Lote de {product.get('nome', 'Produto') if product else 'Produto'} vence em {days_to_expiry} dias.",
-                'produto': product.get('nome', 'Produto') if product else 'Produto',
-                'quantidade': str(quantity),
-                'validade': str(validity)
-            })
+        alerts.append({
+            'id_lote': lot.get('id_lote'),
+            'id_produto': lot.get('id_produto'),
+            'tipo': alert_type,
+            'mensagem': message,
+            'produto': product_name,
+            'quantidade': str(quantity),
+            'validade': expiry.isoformat(),
+            'dias_para_vencer': days_to_expiry
+        })
 
     return alerts
 
@@ -520,9 +628,10 @@ def get_price_map():
     return price_map
 
 
-def get_stock_map():
+def get_stock_map(lots=None):
     totals = {}
-    lots = safe_query('lote', '*')
+    if lots is None:
+        lots = safe_query('lote', '*')
 
     for lot in lots:
         product_id = lot.get('id_produto')
@@ -553,7 +662,11 @@ def calculate_product_stock(product_id):
     return total
 
 
-def consume_stock_by_fifo(product_id, quantity):
+def plan_fefo_exit(product_id, quantity):
+    """Plano de baixa FEFO: lista de (lote, quantidade usada), ou None sem saldo suficiente.
+
+    Sai primeiro o lote que vence antes; lotes sem validade ficam por último.
+    """
     remaining = parse_decimal(quantity)
     lots = safe_query('lote', '*', id_produto=int(product_id))
     lots = sorted(
@@ -561,26 +674,51 @@ def consume_stock_by_fifo(product_id, quantity):
         key=lambda item: (str(item.get('data_validade') or '9999-12-31'), item.get('id_lote', 0))
     )
 
-    consumed_lot_ids = []
-
+    plan = []
     for lot in lots:
         if remaining <= 0:
             break
 
-        lot_quantity = parse_decimal(lot.get('quantidade', 0))
+        lot_quantity = lot_balance(lot)
         if lot_quantity <= 0:
             continue
 
         used = min(remaining, lot_quantity)
-        updated_quantity = lot_quantity - used
-        safe_update('lote', lot.get('id_lote'), {'quantidade': str(updated_quantity)})
-        consumed_lot_ids.append(lot.get('id_lote'))
+        plan.append((lot, used))
         remaining -= used
 
-    if remaining > 0:
+    if remaining > 0 or not plan:
         return None
+    return plan
 
-    return consumed_lot_ids[-1] if consumed_lot_ids else None
+
+def normalize_exit_reason(raw_reason):
+    reason = str(raw_reason or '').strip()
+    if not reason:
+        return 'Venda'
+    for option in MOTIVOS_SAIDA:
+        if reason.lower() == option.lower():
+            return option
+    return None
+
+
+def build_exit_note(reason, note):
+    return f'[{reason}] {str(note or "").strip()}'.strip()
+
+
+def split_exit_note(note):
+    """Separa o motivo gravado no início da observação: '[Perda] texto'."""
+    match = MOTIVO_NA_OBSERVACAO.match(str(note or ''))
+    if not match:
+        return None, note
+    return match.group(1), match.group(2)
+
+
+def undo_exit(changed_lots, created_movements):
+    for movement in created_movements:
+        safe_delete('movimentacao', 'id_movimentacao', movement.get('id_movimentacao'))
+    for lot_id, previous_quantity in changed_lots:
+        atualizar_saldo_lote(lot_id, previous_quantity)
 
 
 @app.get('/api/health')
@@ -901,8 +1039,11 @@ def list_products():
         items = filtered
 
     categories = get_category_map()
-    stock_map = get_stock_map()
+    lots = safe_query('lote', '*')
+    stock_map = get_stock_map(lots)
+    validity_map = get_validity_map(lots)
     price_map = get_price_map()
+    today = hoje()
     enriched = []
 
     for item in items:
@@ -912,6 +1053,11 @@ def list_products():
 
         product_key = int(product_id)
         item_copy = dict(item)
+        next_expiry = validity_map.get(product_key)
+        item_copy['data_validade'] = next_expiry.isoformat() if next_expiry else None
+        item_copy['alerta_validade'] = bool(
+            next_expiry and (next_expiry - today).days <= DIAS_VALIDADE_PROXIMA
+        )
         category_id = item_copy.get('id_categoria')
         item_copy['categoria'] = categories.get(int(category_id), {}).get('nome', 'Sem categoria') if category_id not in (None, '') else 'Sem categoria'
 
@@ -1074,6 +1220,12 @@ def list_movements():
         category = category_map.get(int(category_id)) if category_id not in (None, '') else None
         item_copy['categoria'] = category.get('nome', 'Sem categoria') if category else 'Sem categoria'
 
+        if str(item_copy.get('tipo') or '').upper() == 'SAIDA':
+            reason, note = split_exit_note(item_copy.get('observacao'))
+            if reason:
+                item_copy['motivo'] = reason
+                item_copy['observacao'] = note
+
         try:
             quantidade = parse_decimal(item_copy.get('quantidade', 0))
             valor_unitario = parse_decimal(product.get('preco', 0)) if product else Decimal('0')
@@ -1096,17 +1248,57 @@ def delete_movement(movement_id):
     if not supabase:
         return jsonify({'ok': False, 'message': 'Banco não configurado.'}), 503
 
-    movement = safe_query('movimentacao', '*', id_movimentacao=movement_id)
-    if not movement:
+    movements = safe_query('movimentacao', '*', id_movimentacao=movement_id)
+    if not movements:
         return jsonify({'ok': False, 'message': 'Movimentação não encontrada.'}), 404
 
+    movement = movements[0]
+    tipo = str(movement.get('tipo') or '').upper()
     try:
-        response = supabase.table('movimentacao').delete().eq('id_movimentacao', movement_id).execute()
-        if response.data is not None:
-            return jsonify({'ok': True, 'message': 'Movimentação excluída com sucesso.'}), 200
-    except Exception:
-        return jsonify({'ok': False, 'message': 'Não foi possível excluir a movimentação.'}), 500
+        quantidade = parse_decimal(movement.get('quantidade', 0))
+    except ValueError:
+        quantidade = Decimal('0')
 
+    lot_id = movement.get('id_lote')
+    lots = safe_query('lote', '*', id_lote=int(lot_id)) if lot_id not in (None, '') else []
+    lot = lots[0] if lots else None
+    failure = jsonify({'ok': False, 'message': 'Não foi possível excluir a movimentação.'}), 500
+
+    if tipo == 'ENTRADA' and lot:
+        # A entrada criou o lote: só pode ser desfeita se nada saiu dele ainda.
+        other_movements = [
+            item for item in safe_query('movimentacao', '*', id_lote=int(lot_id))
+            if str(item.get('id_movimentacao')) != str(movement_id)
+        ]
+        if other_movements:
+            return jsonify({
+                'ok': False,
+                'message': 'Este lote já tem saídas registradas. Exclua essas saídas antes de excluir a entrada.'
+            }), 409
+        if not safe_delete('movimentacao', 'id_movimentacao', movement_id):
+            return failure
+        if not safe_delete('lote', 'id_lote', int(lot_id)):
+            atualizar_saldo_lote(int(lot_id), Decimal('0'))
+        return jsonify({
+            'ok': True,
+            'message': 'Entrada excluída. O lote foi removido do estoque.'
+        }), 200
+
+    if tipo == 'SAIDA' and lot:
+        # Estorno: a quantidade volta para o lote de onde saiu.
+        previous_quantity = lot_balance(lot)
+        if not atualizar_saldo_lote(int(lot_id), previous_quantity + quantidade):
+            return failure
+        if not safe_delete('movimentacao', 'id_movimentacao', movement_id):
+            atualizar_saldo_lote(int(lot_id), previous_quantity)
+            return failure
+        return jsonify({
+            'ok': True,
+            'message': 'Saída excluída. A quantidade voltou para o estoque.'
+        }), 200
+
+    if not safe_delete('movimentacao', 'id_movimentacao', movement_id):
+        return failure
     return jsonify({'ok': True, 'message': 'Movimentação excluída com sucesso.'}), 200
 
 
@@ -1142,15 +1334,26 @@ def create_movement():
         fornecedor_id = payload.get('id_fornecedor')
         if fornecedor_id in (None, ''):
             return jsonify({'ok': False, 'message': 'Fornecedor obrigatório para entrada.'}), 400
+        try:
+            fornecedor_id = int(fornecedor_id)
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'message': 'Fornecedor inválido.'}), 400
 
-        data_entrada = payload.get('data_entrada') or datetime.utcnow().strftime('%Y-%m-%d')
-        data_validade = payload.get('data_validade')
+        data_entrada = parse_date(payload.get('data_entrada')) if payload.get('data_entrada') else hoje()
+        if data_entrada is None:
+            return jsonify({'ok': False, 'message': 'Data de entrada inválida.'}), 400
+
+        data_validade = None
+        if payload.get('data_validade'):
+            data_validade = parse_date(payload.get('data_validade'))
+            if data_validade is None:
+                return jsonify({'ok': False, 'message': 'Data de validade inválida.'}), 400
 
         lote_payload = {
             'id_produto': int(product_id),
-            'id_fornecedor': int(fornecedor_id),
-            'data_entrada': str(data_entrada),
-            'data_validade': str(data_validade) if data_validade else None,
+            'id_fornecedor': fornecedor_id,
+            'data_entrada': data_entrada.isoformat(),
+            'data_validade': data_validade.isoformat() if data_validade else None,
             'quantidade': str(quantidade)
         }
 
@@ -1166,34 +1369,69 @@ def create_movement():
             'quantidade': str(quantidade),
             'valor_total': str(valor_total),
             'valor_unitario': str(decimal_money(valor_unitario)),
-            'data_movimentacao': datetime.utcnow().isoformat(timespec='seconds'),
-            'observacao': str(payload.get('observacao') or '')
+            'data_movimentacao': agora().isoformat(timespec='seconds'),
+            'observacao': str(payload.get('observacao') or '').strip()
         })
+        if movimentacao is None:
+            # Sem a movimentação, o lote não pode ficar sozinho no estoque.
+            if not safe_delete('lote', 'id_lote', lote.get('id_lote')):
+                atualizar_saldo_lote(lote.get('id_lote'), Decimal('0'))
+            return jsonify({'ok': False, 'message': 'Não foi possível registrar a entrada. Nada foi gravado.'}), 500
 
-        return jsonify({'ok': True, 'message': 'Entrada registrada com sucesso.', 'id_lote': lote.get('id_lote'), 'id_movimentacao': movimentacao.get('id_movimentacao') if movimentacao else None, 'valor_total': str(valor_total)}), 200
+        return jsonify({'ok': True, 'message': 'Entrada registrada com sucesso.', 'id_lote': lote.get('id_lote'), 'id_movimentacao': movimentacao.get('id_movimentacao'), 'valor_total': str(valor_total)}), 200
 
     if tipo == 'SAIDA':
+        motivo = normalize_exit_reason(payload.get('motivo'))
+        if motivo is None:
+            return jsonify({'ok': False, 'message': 'Motivo de saída inválido.'}), 400
+
         estoque_atual = calculate_product_stock(product_id)
         if quantidade > estoque_atual:
             return jsonify({'ok': False, 'message': 'Quantidade acima do disponível no estoque.'}), 400
 
-        lot_id = consume_stock_by_fifo(product_id, quantidade)
-        if lot_id is None:
-            return jsonify({'ok': False, 'message': 'Não foi possível ajustar o estoque para a saída.'}), 400
+        plan = plan_fefo_exit(product_id, quantidade)
+        if plan is None:
+            return jsonify({'ok': False, 'message': 'Quantidade acima do disponível no estoque.'}), 400
 
-        movimentacao = safe_insert('movimentacao', {
-            'id_produto': int(product_id),
-            'id_lote': lot_id,
-            'id_usuario': usuario.get('id_usuario'),
-            'tipo': 'SAIDA',
-            'quantidade': str(quantidade),
-            'valor_total': str(valor_total),
-            'valor_unitario': str(decimal_money(valor_unitario)),
-            'data_movimentacao': datetime.utcnow().isoformat(timespec='seconds'),
-            'observacao': str(payload.get('observacao') or '')
-        })
+        observacao = build_exit_note(motivo, payload.get('observacao'))
+        data_movimentacao = agora().isoformat(timespec='seconds')
+        changed_lots = []
+        created_movements = []
 
-        return jsonify({'ok': True, 'message': 'Saída registrada com sucesso.', 'id_lote': lot_id, 'id_movimentacao': movimentacao.get('id_movimentacao') if movimentacao else None, 'valor_total': str(valor_total)}), 200
+        # Uma movimentação por lote consumido, para o rastreio e o estorno por lote.
+        for lot, used in plan:
+            lot_id = lot.get('id_lote')
+            previous_quantity = lot_balance(lot)
+            if not atualizar_saldo_lote(lot_id, previous_quantity - used):
+                undo_exit(changed_lots, created_movements)
+                return jsonify({'ok': False, 'message': 'Não foi possível registrar a saída. Nada foi gravado.'}), 500
+            changed_lots.append((lot_id, previous_quantity))
+
+            movimentacao = safe_insert('movimentacao', {
+                'id_produto': int(product_id),
+                'id_lote': lot_id,
+                'id_usuario': usuario.get('id_usuario'),
+                'tipo': 'SAIDA',
+                'quantidade': str(used),
+                'valor_total': str(decimal_money(used * valor_unitario)),
+                'valor_unitario': str(decimal_money(valor_unitario)),
+                'data_movimentacao': data_movimentacao,
+                'observacao': observacao
+            })
+            if movimentacao is None:
+                undo_exit(changed_lots, created_movements)
+                return jsonify({'ok': False, 'message': 'Não foi possível registrar a saída. Nada foi gravado.'}), 500
+            created_movements.append(movimentacao)
+
+        return jsonify({
+            'ok': True,
+            'message': 'Saída registrada com sucesso.',
+            'motivo': motivo,
+            'id_lote': plan[-1][0].get('id_lote'),
+            'id_movimentacao': created_movements[0].get('id_movimentacao'),
+            'ids_movimentacao': [item.get('id_movimentacao') for item in created_movements],
+            'valor_total': str(valor_total)
+        }), 200
 
     return jsonify({'ok': False, 'message': 'Tipo de movimentação inválido.'}), 400
 
@@ -1233,10 +1471,11 @@ def list_reports():
     stock_map = get_stock_map()
     low_stock_count = 0
     near_expiry_count = 0
+    expired_count = 0
 
     for product in products:
         product_id = product.get('id_produto')
-        if product_id is None:
+        if product_id is None or product.get('ativo') is False:
             continue
         try:
             stock = stock_map.get(int(product_id), Decimal('0'))
@@ -1249,13 +1488,17 @@ def list_reports():
     for alert in alerts:
         if alert.get('tipo') == 'VALIDADE_PROXIMA':
             near_expiry_count += 1
+        elif alert.get('tipo') == 'LOTE_VENCIDO':
+            expired_count += 1
 
     return jsonify({
         'summary': {
             'produtos': len(products),
             'alertas': len(alerts),
             'estoque_baixo': low_stock_count,
-            'validade_proxima': near_expiry_count
+            'validade_proxima': near_expiry_count,
+            'lotes_vencidos': expired_count,
+            'dias_validade_proxima': DIAS_VALIDADE_PROXIMA
         },
         'items': alerts
     })

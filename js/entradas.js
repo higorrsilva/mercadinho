@@ -1,6 +1,24 @@
 import apiClient, { getSessionUser, isOwner } from '../services/api/client.js';
 import './session.js';
 
+// Data e hora no formato brasileiro (dd/mm/aaaa hh:mm), no fuso do navegador.
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+};
+
+// Data de hoje no fuso do navegador (horário de Brasília), não em UTC.
+const todayLocal = () => {
+  const now = new Date();
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0')
+  ].join('-');
+};
+
 const tbody = document.getElementById('entradas-table-body');
 const API_BASE_URL = window.location.origin || 'http://127.0.0.1:8000';
 const entryModal = document.getElementById('entry-modal');
@@ -68,7 +86,7 @@ const updateEntryStats = async () => {
     cards[0].textContent = String(items.length);
     cards[1].textContent = String(uniqueProducts);
     cards[2].textContent = Number(totalQuantity).toLocaleString('pt-BR');
-    cards[3].textContent = lastEntry ? new Date(lastEntry.data_movimentacao).toLocaleDateString('pt-BR') : '—';
+    cards[3].textContent = lastEntry ? formatDateTime(lastEntry.data_movimentacao).split(',')[0] : '—';
 
     const badges = document.querySelectorAll('.badge');
     if (badges.length) {
@@ -258,7 +276,7 @@ const renderEntries = async () => {
       const fornecedor = entrySupplierMap.get(Number(item.id_fornecedor)) || item.fornecedor || '—';
       return `
         <tr>
-          <td>${item.data_movimentacao || '—'}</td>
+          <td>${formatDateTime(item.data_movimentacao)}</td>
           <td>${item.produto || 'Produto'}</td>
           <td>${item.quantidade || 0}</td>
           <td>${fornecedor}</td>
@@ -274,7 +292,7 @@ const renderEntries = async () => {
     tbody.querySelectorAll('[data-delete-movement]').forEach((button) => {
       button.addEventListener('click', async () => {
         const movementId = Number(button.dataset.deleteMovement);
-        const confirmed = await showConfirm('Deseja excluir esta entrada?');
+        const confirmed = await showConfirm('Excluir esta entrada? O lote criado por ela sai do estoque.');
         if (!movementId || !confirmed) {
           return;
         }
@@ -314,7 +332,7 @@ entryForm?.addEventListener('submit', async (event) => {
     id_produto: Number(productSelect?.value || 0),
     id_fornecedor: Number(fornecedorSelect?.value || 0),
     quantidade: document.getElementById('entry-quantity')?.value || 0,
-    data_entrada: document.getElementById('entry-date')?.value || new Date().toISOString().slice(0, 10),
+    data_entrada: document.getElementById('entry-date')?.value || todayLocal(),
     data_validade: document.getElementById('entry-validity')?.value || '',
     observacao: document.getElementById('entry-observation')?.value?.trim() || '',
     usuario: getSessionUser()?.login || 'operador'

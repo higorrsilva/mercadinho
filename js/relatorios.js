@@ -15,6 +15,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   const numberFormat = (value) =>
     new Intl.NumberFormat('pt-BR').format(Number(value || 0));
 
+  // Data no fuso do navegador (horário de Brasília), não em UTC.
+  const localDateKey = (date) => [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
+
+  const formatDateBR = (isoDate) => {
+    const [year, month, day] = String(isoDate || '').slice(0, 10).split('-');
+    return year && month && day ? `${day}/${month}/${year}` : '—';
+  };
+
+  const ALERT_LABELS = {
+    ESTOQUE_BAIXO: 'Estoque baixo',
+    VALIDADE_PROXIMA: 'Validade próxima',
+    LOTE_VENCIDO: 'Lote vencido'
+  };
+
   const getFilterState = () => ({
     search: (document.getElementById('report-search')?.value || '').trim().toLowerCase(),
     dateFrom: document.getElementById('report-date-from')?.value || '',
@@ -138,7 +156,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       alerts = applyFilters(alerts);
       lots = applyFilters(lots);
 
-      const salesMovements = movements.filter((item) => String(item.tipo || '').toUpperCase() === 'SAIDA');
+      // Vendas = saídas com motivo Venda (perdas, vencimentos e avarias não contam como venda).
+      const salesMovements = movements.filter((item) => (
+        String(item.tipo || '').toUpperCase() === 'SAIDA' && (item.motivo || 'Venda') === 'Venda'
+      ));
       const entriesMovements = movements.filter((item) => String(item.tipo || '').toUpperCase() === 'ENTRADA');
 
       const totalSalesUnits = salesMovements.reduce((sum, item) => sum + Number(item.quantidade || 0), 0);
@@ -148,7 +169,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }, 0);
       const productsSold = new Set(salesMovements.map((item) => item.id_produto)).size;
       const avgTicket = salesMovements.length ? totalRevenue / salesMovements.length : 0;
-      const lowStockAlerts = products.filter((item) => Number(item.estoque_atual || 0) <= Number(item.estoque_minimo || 0));
+      const lowStockAlerts = products.filter((item) => (
+        item.ativo !== false && Number(item.estoque_atual || 0) <= Number(item.estoque_minimo || 0)
+      ));
 
       const statCards = document.querySelectorAll('.stat-card');
       if (statCards.length >= 4) {
@@ -169,18 +192,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (salesChart) {
         const sevenDays = getLast7Days();
         const maxValue = Math.max(1, ...sevenDays.map((date) => {
-          const key = date.toISOString().slice(0, 10);
+          const key = localDateKey(date);
           return salesMovements.filter((item) => {
             const movementDate = new Date(item.data_movimentacao || item.data || new Date());
-            return movementDate.toISOString().slice(0, 10) === key;
+            return localDateKey(movementDate) === key;
           }).reduce((sum, item) => sum + Number(item.quantidade || 0), 0);
         }));
 
         salesChart.innerHTML = sevenDays.map((date) => {
-          const key = date.toISOString().slice(0, 10);
+          const key = localDateKey(date);
           const value = salesMovements.filter((item) => {
             const movementDate = new Date(item.data_movimentacao || item.data || new Date());
-            return movementDate.toISOString().slice(0, 10) === key;
+            return localDateKey(movementDate) === key;
           }).reduce((sum, item) => sum + Number(item.quantidade || 0), 0);
 
           const height = Math.max(14, (value / maxValue) * 100);
@@ -227,16 +250,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const expirationTableBody = document.getElementById('expiration-table-body');
       if (expirationTableBody) {
-        const upcoming = lots
-          .filter((lot) => Number(lot.quantidade || 0) > 0 && lot.data_validade)
-          .map((lot) => {
-            const now = new Date();
-            const dueDate = new Date(`${lot.data_validade}T00:00:00`);
-            const daysLeft = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-            return { ...lot, daysLeft };
-          })
-          .filter((lot) => lot.daysLeft >= 0 && lot.daysLeft <= 45)
-          .sort((a, b) => a.daysLeft - b.daysLeft)
+        // Mesma regra do servidor: lotes com saldo vencidos ou dentro do prazo de aviso.
+        const upcoming = (Array.isArray(alertsPayload?.items) ? alertsPayload.items : [])
+          .filter((alert) => alert.tipo === 'VALIDADE_PROXIMA' || alert.tipo === 'LOTE_VENCIDO')
+          .sort((a, b) => Number(a.dias_para_vencer ?? 0) - Number(b.dias_para_vencer ?? 0))
           .slice(0, 5);
 
         if (!upcoming.length) {
@@ -257,8 +274,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                   </span>
                 </td>
                 <td>${lot.id_lote || 'Lote'}</td>
-                <td>${lot.data_validade}</td>
-                <td>${lot.quantidade}</td>
+                <td>${formatDateBR(lot.validade)}${lot.tipo === 'LOTE_VENCIDO' ? ' (vencido)' : ''}</td>
+                <td>${numberFormat(lot.quantidade)}</td>
               </tr>
             `;
           }).join('');
@@ -307,7 +324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               <div class="alert-line">
                 <span class="alert-bullet"></span>
                 <div>
-                  <strong>${alert.tipo || 'ALERTA'}</strong>
+                  <strong>${ALERT_LABELS[alert.tipo] || alert.tipo || 'Alerta'}</strong>
                   <p>${alert.mensagem || 'Produto com atenção.'}</p>
                 </div>
               </div>
