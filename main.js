@@ -3,7 +3,6 @@ import apiClient, { saveSession } from './services/api/client.js';
 const passwordInput = document.getElementById('login-password');
 const toggleButtons = document.querySelectorAll('[data-password-toggle]');
 const loginForm = document.querySelector('.login-form');
-const forgotPasswordLink = document.querySelector('.forgot-password');
 const parseJsonResponse = async (response) => {
   const text = await response.text();
 
@@ -79,10 +78,6 @@ loginForm?.addEventListener('submit', (event) => {
   }
 
   loginToSystem(usuario, senha);
-});
-
-forgotPasswordLink?.addEventListener('click', (event) => {
-  event.preventDefault();
 });
 
 if (new URLSearchParams(window.location.search).has('sem-telas')) {

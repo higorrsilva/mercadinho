@@ -287,25 +287,6 @@ button {
   display: none;
 }
 
-.forgot-password {
-  margin-top: 18px;
-  align-self: flex-end;
-  color: var(--accent);
-  font-size: 15px;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.forgot-password:hover {
-  text-decoration: underline;
-}
-
-.forgot-password:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: 4px;
-}
-
 .submit-button,
 .secondary-button {
   width: 100%;
