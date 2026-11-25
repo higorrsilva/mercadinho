@@ -70,18 +70,19 @@ const updateExitStats = async () => {
 
     const uniqueProducts = new Set(items.map((item) => item.id_produto)).size;
     const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantidade || 0), 0);
+    const totalValue = items.reduce((sum, item) => sum + Number(item.valor_total || 0), 0);
     const lastExit = items.slice().sort((a, b) => new Date(b.data_movimentacao || 0) - new Date(a.data_movimentacao || 0))[0];
 
     cards[0].textContent = String(items.length);
     cards[1].textContent = String(uniqueProducts);
-    cards[2].textContent = Number(totalQuantity).toLocaleString('pt-BR');
+    cards[2].textContent = totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     cards[3].textContent = lastExit ? formatDateTime(lastExit.data_movimentacao).split(',')[0] : '—';
 
     const badges = document.querySelectorAll('.mini-tag');
     if (badges.length) {
       badges[0].textContent = `${items.length} registros`;
       badges[1].textContent = `${uniqueProducts} produtos`;
-      badges[2].textContent = `Total ${Number(totalQuantity).toLocaleString('pt-BR')}`;
+      badges[2].textContent = `${Number(totalQuantity).toLocaleString('pt-BR')} unidades`;
       badges[3].textContent = lastExit ? 'Atualizado' : 'Sem dados';
     }
   } catch (error) {
