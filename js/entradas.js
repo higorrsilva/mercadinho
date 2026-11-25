@@ -133,6 +133,9 @@ async function loadEntryReferences() {
         .join('');
     }
 
+    entrySupplierMap = new Map(suppliers.map((item) => [Number(item.id_fornecedor), item.nome || 'Fornecedor']));
+    renderSupplierFilterOptions(suppliers);
+
     if (fornecedorSelect) {
       fornecedorSelect.innerHTML = '<option value="">Selecione o fornecedor</option>' + suppliers
         .map((item) => `<option value="${escapeHtml(item.id_fornecedor)}">${escapeHtml(item.nome)}</option>`)
@@ -145,6 +148,26 @@ async function loadEntryReferences() {
 }
 
 let entrySupplierMap = new Map();
+
+// Opções do filtro "Fornecedor" com todos os fornecedores cadastrados
+// (inclusive inativos, que podem ter entradas antigas).
+const renderSupplierFilterOptions = (suppliers) => {
+  const supplierField = document.querySelector('[data-filter-key="fornecedor"]');
+  const filterMenu = supplierField?.querySelector('.filter-menu');
+  if (!supplierField || !filterMenu) return;
+
+  const current = supplierField.dataset.value || 'todos';
+  const ordered = suppliers
+    .slice()
+    .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+
+  filterMenu.innerHTML = `
+    <li class="filter-option${current === 'todos' ? ' selected' : ''}" data-filter-value="todos">Todos os fornecedores</li>
+    ${ordered.map((item) => `
+      <li class="filter-option${String(item.id_fornecedor) === current ? ' selected' : ''}" data-filter-value="${escapeHtml(item.id_fornecedor)}">${escapeHtml(item.nome || 'Fornecedor')}</li>
+    `).join('')}
+  `;
+};
 
 const getEntryFilterState = () => {
   const searchInput = document.getElementById('entry-search');
@@ -165,7 +188,7 @@ const applyEntryFilters = (items) => {
 
   return items.filter((item) => {
     const productName = item.produto || '';
-    const supplierName = entrySupplierMap.get(Number(item.id_fornecedor)) || item.fornecedor || '';
+    const supplierName = item.fornecedor || entrySupplierMap.get(Number(item.id_fornecedor)) || '';
     const haystack = [productName, supplierName, item.observacao, item.tipo].join(' ').toLowerCase();
     if (search && !haystack.includes(search)) {
       return false;
@@ -191,7 +214,6 @@ const applyEntryFilters = (items) => {
 const setupFilterDropdowns = () => {
   document.querySelectorAll('.select-field').forEach((field) => {
     const selectedValue = field.querySelector('.selected-value');
-    const options = field.querySelectorAll('.filter-option');
 
     const closeDropdown = () => {
       field.classList.remove('is-open');
@@ -206,7 +228,7 @@ const setupFilterDropdowns = () => {
         if (selectedValue) {
           selectedValue.textContent = label;
         }
-        options.forEach((item) => item.classList.toggle('selected', item === option));
+        field.querySelectorAll('.filter-option').forEach((item) => item.classList.toggle('selected', item === option));
         field.dataset.value = value;
         closeDropdown();
         if (typeof renderEntries === 'function') {
@@ -275,7 +297,7 @@ const renderEntries = async () => {
     const pageItems = filteredItems.slice(start, start + entryPageSize);
 
     tbody.innerHTML = pageItems.map((item) => {
-      const fornecedor = entrySupplierMap.get(Number(item.id_fornecedor)) || item.fornecedor || '—';
+      const fornecedor = item.fornecedor || entrySupplierMap.get(Number(item.id_fornecedor)) || '—';
       return `
         <tr>
           <td>${escapeHtml(formatDateTime(item.data_movimentacao))}</td>

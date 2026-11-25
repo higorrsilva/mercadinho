@@ -350,6 +350,12 @@ class EstoqueTests(unittest.TestCase):
         self.assertEqual(len(self.db.rows('movimentacao')), movements_before)
         self.assertEqual(self.lote(104)['quantidade'], '5')
 
+    def test_movimentacoes_trazem_o_fornecedor_do_lote(self):
+        entrada = self.movimentacao_listada(1000)
+
+        self.assertEqual(entrada['id_fornecedor'], 1)
+        self.assertEqual(entrada['fornecedor'], 'Atacadão')
+
     def test_venda_exige_permissao_de_caixa_ou_saidas(self):
         self.db.tables['usuario'].append({
             'id_usuario': 3, 'nome': 'Estoquista', 'login': 'estoque', 'tipo': 'FUNCIONARIO',

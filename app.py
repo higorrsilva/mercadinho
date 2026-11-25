@@ -1241,6 +1241,14 @@ def list_movements():
 
     product_map = get_product_map()
     category_map = get_category_map()
+    # O fornecedor fica no lote: a movimentação chega a ele pelo id_lote.
+    lot_map = {
+        str(lot.get('id_lote')): lot for lot in safe_query('lote', '*') if lot.get('id_lote') is not None
+    }
+    supplier_map = {
+        str(supplier.get('id_fornecedor')): supplier
+        for supplier in safe_query('fornecedor', '*') if supplier.get('id_fornecedor') is not None
+    }
     enriched = []
 
     for item in items:
@@ -1251,6 +1259,12 @@ def list_movements():
         category_id = product.get('id_categoria') if product else None
         category = category_map.get(int(category_id)) if category_id not in (None, '') else None
         item_copy['categoria'] = category.get('nome', 'Sem categoria') if category else 'Sem categoria'
+
+        lot = lot_map.get(str(item_copy.get('id_lote')))
+        supplier_id = lot.get('id_fornecedor') if lot else None
+        supplier = supplier_map.get(str(supplier_id)) if supplier_id not in (None, '') else None
+        item_copy['id_fornecedor'] = supplier_id
+        item_copy['fornecedor'] = supplier.get('nome') if supplier else None
 
         if str(item_copy.get('tipo') or '').upper() == 'SAIDA':
             reason, note = split_exit_note(item_copy.get('observacao'))
