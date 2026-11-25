@@ -307,6 +307,27 @@ class EstoqueTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.saidas(), [])
 
+    def movimentacao_listada(self, movement_id):
+        items = self.client.get('/api/movimentacoes', headers=self.owner_headers).get_json()['items']
+        return next(item for item in items if item['id_movimentacao'] == movement_id)
+
+    def test_mudar_o_preco_nao_muda_o_valor_de_venda_antiga(self):
+        movement_id = self.registrar_venda([{'id_produto': 11, 'quantidade': 2}]).get_json()['ids_movimentacao'][0]
+
+        response = self.client.put('/api/produtos/11', json={'preco': '9.90'}, headers=self.owner_headers)
+        self.assertEqual(response.status_code, 200)
+
+        venda = self.movimentacao_listada(movement_id)
+        self.assertEqual(venda['valor_unitario'], '5.00')
+        self.assertEqual(venda['valor_total'], '10.00')
+
+    def test_movimentacao_sem_valor_gravado_usa_o_preco_atual(self):
+        # As entradas dos dados iniciais não têm valor gravado.
+        entrada = self.movimentacao_listada(1000)
+
+        self.assertEqual(entrada['valor_unitario'], '20.00')
+        self.assertEqual(entrada['valor_total'], '60.00')
+
     def test_venda_exige_permissao_de_caixa_ou_saidas(self):
         self.db.tables['usuario'].append({
             'id_usuario': 3, 'nome': 'Estoquista', 'login': 'estoque', 'tipo': 'FUNCIONARIO',

@@ -1259,9 +1259,17 @@ def list_movements():
                 item_copy['observacao'] = note
 
         try:
+            # Vale o valor gravado na movimentação (preço da época); o preço atual
+            # do produto só é usado quando a movimentação não tem valor gravado.
             quantidade = parse_decimal(item_copy.get('quantidade', 0))
-            valor_unitario = parse_decimal(product.get('preco', 0)) if product else Decimal('0')
-            total = decimal_money(quantidade * valor_unitario)
+            current_price = parse_decimal(product.get('preco', 0)) if product else Decimal('0')
+            saved_unit = item_copy.get('valor_unitario')
+            saved_total = item_copy.get('valor_total')
+            valor_unitario = parse_decimal(saved_unit) if saved_unit not in (None, '') else current_price
+            if saved_total not in (None, ''):
+                total = decimal_money(parse_decimal(saved_total))
+            else:
+                total = decimal_money(quantidade * valor_unitario)
             item_copy['valor_unitario'] = str(decimal_money(valor_unitario))
             item_copy['valor_total'] = str(total)
         except Exception:
