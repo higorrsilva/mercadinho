@@ -973,16 +973,62 @@ def list_suppliers():
     return jsonify({'items': ordered}), 200
 
 
-def email_de_outro_fornecedor(email, supplier_id=None):
-    """True se outro fornecedor já usa este e-mail (sem diferenciar maiúsculas)."""
-    email = str(email or '').strip().lower()
-    if not email:
-        return False
-    return any(
-        str(supplier.get('email') or '').strip().lower() == email
-        and str(supplier.get('id_fornecedor')) != str(supplier_id)
-        for supplier in safe_query('fornecedor', '*')
-    )
+TELEFONE_PERMITIDO = re.compile(r'^[\d\s().+-]+$')
+
+
+def normalizar_nome_fornecedor(nome):
+    """Sem espaços nas pontas, espaços repetidos viram um e tudo em minúsculas."""
+    return ' '.join(str(nome or '').split()).casefold()
+
+
+def digitos_telefone(telefone):
+    return re.sub(r'\D', '', str(telefone or ''))
+
+
+def normalizar_email(email):
+    return str(email or '').strip().casefold()
+
+
+def validar_telefone(telefone):
+    """Telefone vazio é aceito; preenchido precisa ter 10 ou 11 dígitos (DDD + número)."""
+    telefone = str(telefone or '').strip()
+    if not telefone:
+        return None
+    if not TELEFONE_PERMITIDO.match(telefone) or len(digitos_telefone(telefone)) not in (10, 11):
+        return 'Telefone inválido. Informe o DDD e o número, com 10 ou 11 dígitos.'
+    return None
+
+
+def fornecedor_repetido(nome, telefone, email, supplier_id=None, campos=('nome', 'telefone', 'email')):
+    """Mensagem dizendo qual campo já existe em outro fornecedor (ativo ou inativo), ou None.
+
+    O próprio fornecedor (supplier_id) não conta como repetido.
+    """
+    procurado = {
+        'nome': normalizar_nome_fornecedor(nome),
+        'telefone': digitos_telefone(telefone),
+        'email': normalizar_email(email),
+    }
+    normalizar = {
+        'nome': normalizar_nome_fornecedor,
+        'telefone': digitos_telefone,
+        'email': normalizar_email,
+    }
+    mensagens = {
+        'nome': 'Já existe um fornecedor com este nome.',
+        'telefone': 'Já existe um fornecedor com este telefone.',
+        'email': 'Já existe um fornecedor com este e-mail.',
+    }
+    outros = [
+        supplier for supplier in safe_query('fornecedor', '*')
+        if str(supplier.get('id_fornecedor')) != str(supplier_id)
+    ]
+    for campo in ('nome', 'telefone', 'email'):
+        if campo not in campos or not procurado[campo]:
+            continue
+        if any(normalizar[campo](supplier.get(campo)) == procurado[campo] for supplier in outros):
+            return mensagens[campo]
+    return None
 
 
 @app.post('/api/fornecedores')
@@ -997,8 +1043,13 @@ def create_supplier():
     if not nome:
         return jsonify({'ok': False, 'message': 'Nome do fornecedor é obrigatório.'}), 400
 
-    if email_de_outro_fornecedor(email):
-        return jsonify({'ok': False, 'message': 'E-mail já cadastrado para outro fornecedor.'}), 409
+    erro_telefone = validar_telefone(telefone)
+    if erro_telefone:
+        return jsonify({'ok': False, 'message': erro_telefone}), 400
+
+    repetido = fornecedor_repetido(nome, telefone, email)
+    if repetido:
+        return jsonify({'ok': False, 'message': repetido}), 409
 
     supplier_payload = {
         'nome': nome,
@@ -1036,8 +1087,26 @@ def update_supplier(supplier_id):
     telefone = str(payload.get('telefone') if payload.get('telefone') is not None else existing[0].get('telefone') or '').strip()
     email = str(payload.get('email') if payload.get('email') is not None else existing[0].get('email') or '').strip()
 
-    if email_de_outro_fornecedor(email, supplier_id):
-        return jsonify({'ok': False, 'message': 'E-mail já cadastrado para outro fornecedor.'}), 409
+    # Só confere o que mudou: dados antigos já gravados (ex.: telefone fora do padrão)
+    # não impedem editar ou inativar o fornecedor.
+    atual = existing[0]
+    mudou = {
+        'nome': normalizar_nome_fornecedor(nome) != normalizar_nome_fornecedor(atual.get('nome')),
+        'telefone': telefone != str(atual.get('telefone') or '').strip(),
+        'email': normalizar_email(email) != normalizar_email(atual.get('email')),
+    }
+
+    if mudou['telefone']:
+        erro_telefone = validar_telefone(telefone)
+        if erro_telefone:
+            return jsonify({'ok': False, 'message': erro_telefone}), 400
+
+    repetido = fornecedor_repetido(
+        nome, telefone, email, supplier_id,
+        campos=[campo for campo, alterado in mudou.items() if alterado]
+    )
+    if repetido:
+        return jsonify({'ok': False, 'message': repetido}), 409
 
     update_payload = {
         'nome': nome,

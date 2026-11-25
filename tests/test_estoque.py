@@ -356,6 +356,80 @@ class EstoqueTests(unittest.TestCase):
         self.assertEqual(entrada['id_fornecedor'], 1)
         self.assertEqual(entrada['fornecedor'], 'Atacadão')
 
+    def criar_fornecedor(self, **dados):
+        return self.client.post('/api/fornecedores', json=dados, headers=self.owner_headers)
+
+    def test_nome_de_fornecedor_repetido_com_maiusculas_e_espacos_diferentes(self):
+        # O fornecedor 1 (Atacadão) também conta se estiver inativo.
+        self.db.tables['fornecedor'][0]['ativo'] = False
+        fornecedores_antes = len(self.db.rows('fornecedor'))
+
+        response = self.criar_fornecedor(nome='  ATACADÃO  ')
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()['message'], 'Já existe um fornecedor com este nome.')
+        self.assertEqual(len(self.db.rows('fornecedor')), fornecedores_antes)
+
+        response = self.criar_fornecedor(nome='Distribuidora   Boa  Vista')
+        self.assertEqual(response.status_code, 200)
+        response = self.criar_fornecedor(nome='distribuidora boa vista')
+        self.assertEqual(response.status_code, 409)
+
+    def test_telefone_de_fornecedor_repetido_com_formatacao_diferente(self):
+        self.db.tables['fornecedor'][0]['telefone'] = '(11) 98839-1234'
+
+        criar = self.criar_fornecedor(nome='Outro', telefone='11988391234')
+        self.assertEqual(criar.status_code, 409)
+        self.assertEqual(criar.get_json()['message'], 'Já existe um fornecedor com este telefone.')
+
+        outro_id = self.criar_fornecedor(nome='Outro', telefone='(11) 3333-4444').get_json()['id_fornecedor']
+        editar = self.client.put(f'/api/fornecedores/{outro_id}', json={
+            'telefone': '11 98839 1234'
+        }, headers=self.owner_headers)
+        self.assertEqual(editar.status_code, 409)
+        self.assertEqual(editar.get_json()['message'], 'Já existe um fornecedor com este telefone.')
+
+    def test_email_de_fornecedor_repetido_diz_qual_campo_repetiu(self):
+        self.db.tables['fornecedor'][0]['email'] = 'vendas@atacadao.com'
+
+        response = self.criar_fornecedor(nome='Outro', email='vendas@atacadao.com')
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()['message'], 'Já existe um fornecedor com este e-mail.')
+
+    def test_editar_o_proprio_fornecedor_sem_mudar_nada_passa(self):
+        self.db.tables['fornecedor'][0].update({'telefone': '(11) 98839-1234', 'email': 'vendas@atacadao.com'})
+
+        response = self.client.put('/api/fornecedores/1', json={
+            'nome': 'Atacadão', 'telefone': '(11) 98839-1234', 'email': 'vendas@atacadao.com', 'ativo': True
+        }, headers=self.owner_headers)
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_telefone_de_fornecedor_invalido_e_recusado(self):
+        fornecedores_antes = len(self.db.rows('fornecedor'))
+
+        for telefone in ('*11', '1234', '(11) 98839-12345', '11 9883A-1234'):
+            response = self.criar_fornecedor(nome=f'Fornecedor {telefone}', telefone=telefone)
+            self.assertEqual(response.status_code, 400, telefone)
+            self.assertIn('Telefone inválido', response.get_json()['message'])
+        self.assertEqual(len(self.db.rows('fornecedor')), fornecedores_antes)
+
+        # Vazio é aceito; 10 e 11 dígitos também.
+        self.assertEqual(self.criar_fornecedor(nome='Sem telefone', telefone='').status_code, 200)
+        self.assertEqual(self.criar_fornecedor(nome='Fixo', telefone='(11) 3333-4444').status_code, 200)
+        self.assertEqual(self.criar_fornecedor(nome='Celular', telefone='11977776666').status_code, 200)
+
+    def test_editar_fornecedor_com_telefone_antigo_fora_do_padrao_ainda_permite_inativar(self):
+        self.db.tables['fornecedor'][0]['telefone'] = '*11'
+
+        response = self.client.put('/api/fornecedores/1', json={
+            'nome': 'Atacadão', 'telefone': '*11', 'ativo': False
+        }, headers=self.owner_headers)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.db.rows('fornecedor')[0]['ativo'])
+
     def test_email_de_fornecedor_repetido_ignora_maiusculas(self):
         self.db.tables['fornecedor'][0]['email'] = 'vendas@atacadao.com'
 

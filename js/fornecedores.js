@@ -12,6 +12,25 @@ const supplierPageSize = 10;
 let currentSupplierPage = 1;
 let editingSupplierId = null;
 
+// Mensagem de erro dentro do modal (ex.: "Já existe um fornecedor com este telefone.").
+const showSupplierFormError = (message) => {
+  const errorBox = document.getElementById('supplier-form-error');
+  if (!errorBox) {
+    window.alert(message);
+    return;
+  }
+  errorBox.textContent = message;
+  errorBox.hidden = false;
+};
+
+const clearSupplierFormError = () => {
+  const errorBox = document.getElementById('supplier-form-error');
+  if (errorBox) {
+    errorBox.textContent = '';
+    errorBox.hidden = true;
+  }
+};
+
 const renderSupplierPagination = (totalItems) => {
   const pagination = document.querySelector('.table-footer .pagination');
   const footerText = document.querySelector('.table-footer > span');
@@ -88,6 +107,7 @@ const openSupplierModal = (supplier = null) => {
   const title = document.getElementById('supplier-title');
   const subtitle = document.getElementById('supplier-subtitle');
   const submitButton = document.getElementById('supplier-submit-button');
+  clearSupplierFormError();
 
   if (supplier) {
     editingSupplierId = supplier.id_fornecedor;
@@ -122,6 +142,7 @@ const closeSupplierModal = () => {
   supplierModal && (supplierModal.style.display = 'none');
   editingSupplierId = null;
   supplierForm?.reset();
+  clearSupplierFormError();
 
   const title = document.getElementById('supplier-title');
   const subtitle = document.getElementById('supplier-subtitle');
@@ -297,8 +318,9 @@ supplierForm?.addEventListener('submit', async (event) => {
     ativo: document.getElementById('supplier-active')?.checked ?? true
   };
 
+  clearSupplierFormError();
   if (!payload.nome) {
-    window.alert('Informe o nome do fornecedor antes de salvar.');
+    showSupplierFormError('Informe o nome do fornecedor antes de salvar.');
     return;
   }
 
@@ -323,7 +345,7 @@ supplierForm?.addEventListener('submit', async (event) => {
     await updateSupplierStats();
     await renderSuppliers();
   } catch (error) {
-    window.alert(error.message || 'Erro ao salvar fornecedor.');
+    showSupplierFormError(error.message || 'Erro ao salvar fornecedor.');
   }
 });
 
@@ -357,7 +379,7 @@ const initializeSupplierModal = () => {
       await updateSupplierStats();
       await renderSuppliers();
     } catch (error) {
-      window.alert(error.message || 'Erro ao inativar fornecedor.');
+      showSupplierFormError(error.message || 'Erro ao inativar fornecedor.');
     }
   });
 
