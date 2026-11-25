@@ -328,6 +328,28 @@ class EstoqueTests(unittest.TestCase):
         self.assertEqual(entrada['valor_unitario'], '20.00')
         self.assertEqual(entrada['valor_total'], '60.00')
 
+    def test_produto_inativo_nao_aceita_entrada_nem_saida(self):
+        # O produto 12 está inativo; damos saldo a ele para a saída não falhar por estoque.
+        self.db.tables['lote'].append({
+            'id_lote': 104, 'id_produto': 12, 'id_fornecedor': 1, 'data_entrada': '2026-11-01',
+            'data_validade': None, 'quantidade': '5'
+        })
+        lots_before = len(self.db.rows('lote'))
+        movements_before = len(self.db.rows('movimentacao'))
+
+        entrada = self.client.post('/api/movimentacoes', json={
+            'tipo': 'ENTRADA', 'id_produto': 12, 'quantidade': 3, 'id_fornecedor': 1
+        }, headers=self.owner_headers)
+        saida = self.registrar_saida(12, 1)
+        venda = self.registrar_venda([{'id_produto': 12, 'quantidade': 1}])
+
+        for response in (entrada, saida, venda):
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.get_json()['message'], 'Produto inativo.')
+        self.assertEqual(len(self.db.rows('lote')), lots_before)
+        self.assertEqual(len(self.db.rows('movimentacao')), movements_before)
+        self.assertEqual(self.lote(104)['quantidade'], '5')
+
     def test_venda_exige_permissao_de_caixa_ou_saidas(self):
         self.db.tables['usuario'].append({
             'id_usuario': 3, 'nome': 'Estoquista', 'login': 'estoque', 'tipo': 'FUNCIONARIO',

@@ -108,7 +108,9 @@ async function loadExitReferenceProducts() {
   try {
     const response = await apiClient.fetch(`${API_BASE_URL}/api/produtos`);
     const payload = await response.json();
-    const items = Array.isArray(payload?.items) ? payload.items : [];
+    // Saída só para produtos ativos.
+    const items = (Array.isArray(payload?.items) ? payload.items : [])
+      .filter((item) => item?.ativo !== false);
 
     exitProductSelect.innerHTML = '<option value="">Selecione o produto</option>' + items
       .map((item) => `<option value="${escapeHtml(item.id_produto)}">${escapeHtml(item.nome)}</option>`)

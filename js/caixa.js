@@ -24,6 +24,9 @@ let productCatalog = [];
 let productCatalogLoading = false;
 let saleInProgress = false;
 
+// O caixa só vende produtos ativos.
+const isActiveProduct = (item) => item?.ativo !== false;
+
 const formatMoney = (value) => {
   const number = Number(value || 0);
   return new Intl.NumberFormat('pt-BR', {
@@ -182,7 +185,7 @@ const loadProductCatalog = async () => {
   try {
     const response = await fetchJsonWithTimeout(`${API_BASE_URL}/api/produtos`, { method: 'GET' }, 15000);
     const payload = await response.json();
-    const items = Array.isArray(payload?.items) ? payload.items : [];
+    const items = (Array.isArray(payload?.items) ? payload.items : []).filter(isActiveProduct);
     productCatalog = items;
     return items;
   } catch (error) {
@@ -213,7 +216,7 @@ const fetchProductByBarcode = async () => {
         20000
       );
       const payload = await response.json();
-      items = Array.isArray(payload?.items) ? payload.items : [];
+      items = (Array.isArray(payload?.items) ? payload.items : []).filter(isActiveProduct);
       if (items.length) {
         productCatalog = items;
       }

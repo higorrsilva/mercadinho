@@ -1356,6 +1356,8 @@ def create_movement():
     product = get_product_by_id(product_id)
     if not product:
         return jsonify({'ok': False, 'message': 'Produto não encontrado.'}), 404
+    if tipo in ('ENTRADA', 'SAIDA') and product.get('ativo') is False:
+        return jsonify({'ok': False, 'message': 'Produto inativo.'}), 400
 
     usuario = g.usuario_autenticado
 
@@ -1495,6 +1497,8 @@ def create_sale():
         product = get_product_by_id(product_id)
         if not product:
             return jsonify({'ok': False, 'message': 'Produto não encontrado.'}), 404
+        if product.get('ativo') is False:
+            return jsonify({'ok': False, 'message': 'Produto inativo.'}), 400
         nome = product.get('nome') or 'Produto'
         plan = plan_fefo_exit(product_id, quantidade)
         if plan is None:

@@ -122,7 +122,9 @@ async function loadEntryReferences() {
 
     const productsData = await productsResponse.json();
     const suppliersData = await suppliersResponse.json();
-    const products = Array.isArray(productsData?.items) ? productsData.items : [];
+    // Entrada só para produtos ativos.
+    const products = (Array.isArray(productsData?.items) ? productsData.items : [])
+      .filter((item) => item?.ativo !== false);
     const suppliers = Array.isArray(suppliersData?.items) ? suppliersData.items : [];
 
     if (productSelect) {
