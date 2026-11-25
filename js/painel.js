@@ -1,14 +1,8 @@
-import apiClient, { getSessionUser } from '../services/api/client.js';
+import apiClient from '../services/api/client.js';
 import './session.js';
 
-const modal = document.getElementById('movement-modal');
 const API_BASE_URL = window.location.origin || 'http://127.0.0.1:8000';
-const openButton = document.querySelector('[data-open-movement]');
-const closeButtons = document.querySelectorAll('[data-close-movement]');
-const movementOptions = document.querySelectorAll('[data-movement-type]');
 const painelTableBody = document.getElementById('painel-table-body');
-const movementForm = document.getElementById('movement-form');
-const movementProductSelect = document.getElementById('movement-product');
 const painelPageSize = 5;
 let currentPainelPage = 1;
 let painelCache = null;
@@ -105,33 +99,6 @@ const updatePanelStats = async () => {
     });
   }
 };
-
-const openMovementModal = () => {
-  modal?.classList.add('is-open');
-  modal?.setAttribute('aria-hidden', 'false');
-};
-
-const closeMovementModal = () => {
-  modal?.classList.remove('is-open');
-  modal?.setAttribute('aria-hidden', 'true');
-  movementForm?.reset();
-};
-
-async function loadMovementProducts() {
-  if (!movementProductSelect) return;
-
-  try {
-    const response = await apiClient.fetch(`${API_BASE_URL}/api/produtos`);
-    const payload = await response.json();
-    const items = Array.isArray(payload?.items) ? payload.items : [];
-
-    movementProductSelect.innerHTML = '<option value="">Selecione o produto</option>' + items
-      .map((item) => `<option value="${item.id_produto}">${item.nome}</option>`)
-      .join('');
-  } catch (error) {
-    movementProductSelect.innerHTML = '<option value="">Erro ao carregar</option>';
-  }
-}
 
 const getPanelFilterState = () => {
   const searchInput = document.getElementById('painel-search');
@@ -231,67 +198,6 @@ const renderMovementRows = async () => {
   }
 };
 
-movementOptions.forEach((option) => {
-  option.addEventListener('click', () => {
-    movementOptions.forEach((item) => {
-      item.classList.remove('active');
-      item.setAttribute('aria-pressed', 'false');
-    });
-
-    option.classList.add('active');
-    option.setAttribute('aria-pressed', 'true');
-  });
-});
-
-movementForm?.addEventListener('submit', async (event) => {
-  event.preventDefault();
-
-  const activeType = document.querySelector('.movement-option.active')?.dataset.movementType || 'entrada';
-  const payload = {
-    tipo: activeType.toUpperCase(),
-    id_produto: Number(movementProductSelect?.value || 0),
-    quantidade: document.getElementById('movement-quantity')?.value || 0,
-    observacao: document.getElementById('movement-observation')?.value?.trim() || '',
-    usuario: getSessionUser()?.login || 'operador'
-  };
-
-  if (!payload.id_produto || !payload.quantidade) {
-    window.alert('Selecione o produto e a quantidade antes de salvar.');
-    return;
-  }
-
-  try {
-    const response = await apiClient.fetch(`${API_BASE_URL}/api/movimentacoes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || 'Não foi possível registrar a movimentação.');
-    }
-
-    window.alert(data.message || 'Movimentação registrada com sucesso.');
-    closeMovementModal();
-    await updatePanelStats();
-    await renderMovementRows();
-  } catch (error) {
-    window.alert(error.message || 'Erro ao registrar movimentação.');
-  }
-});
-
-openButton?.addEventListener('click', openMovementModal);
-closeButtons.forEach((button) => {
-  button.addEventListener('click', closeMovementModal);
-});
-
-modal?.addEventListener('click', (event) => {
-  if (event.target === modal) {
-    closeMovementModal();
-  }
-});
-
 const setupPanelFilters = () => {
   const searchInput = document.getElementById('painel-search');
   const dateFromInput = document.getElementById('painel-date-from');
@@ -351,7 +257,6 @@ const setupPanelFilters = () => {
   });
 };
 
-loadMovementProducts();
 setupPanelFilters();
 renderMovementRows();
 updatePanelStats();
