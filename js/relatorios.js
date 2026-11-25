@@ -33,43 +33,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     LOTE_VENCIDO: 'Lote vencido'
   };
 
-  const getFilterState = () => ({
-    search: (document.getElementById('report-search')?.value || '').trim().toLowerCase(),
-    dateFrom: document.getElementById('report-date-from')?.value || '',
-    dateTo: document.getElementById('report-date-to')?.value || '',
-    type: document.querySelector('[data-filter-key="tipo-relatorio"]')?.dataset.value || 'todos'
-  });
-
-  const applyFilters = (items) => {
-    const { search, dateFrom, dateTo, type } = getFilterState();
-    return items.filter((item) => {
-      const haystack = [item.produto, item.nome, item.tipo, item.mensagem, item.categoria].join(' ').toLowerCase();
-      if (search && !haystack.includes(search)) {
-        return false;
-      }
-
-      const dateValue = item.data_movimentacao || item.data_validade || item.data_geracao || item.data;
-      if (dateValue) {
-        const itemDate = new Date(dateValue);
-        if (Number.isNaN(itemDate.getTime())) {
-          return false;
-        }
-        if (dateFrom && itemDate < new Date(`${dateFrom}T00:00:00`)) {
-          return false;
-        }
-        if (dateTo && itemDate > new Date(`${dateTo}T23:59:59`)) {
-          return false;
-        }
-      }
-
-      if (type !== 'todos' && item.tipo && String(item.tipo).toUpperCase() !== type.toUpperCase()) {
-        return false;
-      }
-
-      return true;
-    });
-  };
-
   const getLast7Days = () => {
     return Array.from({ length: 7 }, (_, index) => {
       const date = new Date();
@@ -82,79 +45,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   const formatDay = (date) =>
     new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(date);
 
-  const attachReportFilters = () => {
-    document.getElementById('report-search')?.addEventListener('input', () => renderReports());
-    ['report-date-from', 'report-date-to'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', () => renderReports());
-    });
-
-    document.querySelectorAll('.select-field').forEach((field) => {
-      const selectedValue = field.querySelector('.selected-value');
-      const options = field.querySelectorAll('.filter-option');
-
-      const closeDropdown = () => {
-        field.classList.remove('is-open');
-        field.setAttribute('aria-expanded', 'false');
-      };
-
-      field.addEventListener('click', (event) => {
-        const option = event.target.closest('.filter-option');
-        if (option) {
-          const label = option.textContent.trim();
-          const value = option.dataset.filterValue || option.textContent.trim().toLowerCase();
-          if (selectedValue) {
-            selectedValue.textContent = label;
-          }
-          options.forEach((item) => item.classList.toggle('selected', item === option));
-          field.dataset.value = value;
-          closeDropdown();
-          renderReports();
-          return;
-        }
-
-        const isOpen = field.classList.toggle('is-open');
-        field.setAttribute('aria-expanded', String(isOpen));
-      });
-
-      field.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          const isOpen = field.classList.toggle('is-open');
-          field.setAttribute('aria-expanded', String(isOpen));
-        }
-      });
-
-      document.addEventListener('click', (event) => {
-        if (!field.contains(event.target)) {
-          closeDropdown();
-        }
-      });
-    });
-  };
-
   const renderReports = async () => {
     try {
-      const [productsResponse, movementsResponse, alertsResponse, lotsResponse] = await Promise.all([
+      const [productsResponse, movementsResponse, alertsResponse] = await Promise.all([
         apiClient.fetch(`${API_BASE_URL}/api/produtos`),
         apiClient.fetch(`${API_BASE_URL}/api/movimentacoes`),
-        apiClient.fetch(`${API_BASE_URL}/api/alertas`),
-        apiClient.fetch(`${API_BASE_URL}/api/lotes`)
+        apiClient.fetch(`${API_BASE_URL}/api/alertas`)
       ]);
 
       const productsPayload = await productsResponse.json();
       const movementsPayload = await movementsResponse.json();
       const alertsPayload = await alertsResponse.json();
-      const lotsPayload = await lotsResponse.json();
 
-      let products = Array.isArray(productsPayload?.items) ? productsPayload.items : [];
-      let movements = Array.isArray(movementsPayload?.items) ? movementsPayload.items : [];
-      let alerts = Array.isArray(alertsPayload?.items) ? alertsPayload.items : [];
-      let lots = Array.isArray(lotsPayload?.items) ? lotsPayload.items : [];
-
-      products = applyFilters(products);
-      movements = applyFilters(movements);
-      alerts = applyFilters(alerts);
-      lots = applyFilters(lots);
+      // A tela usa sempre todos os dados (não há filtros nos relatórios).
+      const products = Array.isArray(productsPayload?.items) ? productsPayload.items : [];
+      const movements = Array.isArray(movementsPayload?.items) ? movementsPayload.items : [];
+      const alerts = Array.isArray(alertsPayload?.items) ? alertsPayload.items : [];
 
       // Vendas = saídas com motivo Venda (perdas, vencimentos e avarias não contam como venda).
       const salesMovements = movements.filter((item) => (
@@ -346,6 +252,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  attachReportFilters();
   renderReports();
 });
