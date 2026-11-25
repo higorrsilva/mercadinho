@@ -103,6 +103,22 @@ class EstoqueTests(unittest.TestCase):
         self.assertEqual(saida['motivo'], 'Venda')
         self.assertEqual(saida['observacao'], '')
 
+    def test_saida_com_motivo_avaria_e_gravada_e_listada_como_avaria(self):
+        # Mesmo corpo que a tela de Saídas envia (quantidade vem do input como texto).
+        response = self.client.post('/api/movimentacoes', json={
+            'tipo': 'SAIDA', 'id_produto': 10, 'quantidade': '2', 'motivo': 'Avaria',
+            'observacao': 'Embalagem rasgada', 'usuario': 'dono'
+        }, headers=self.owner_headers)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['motivo'], 'Avaria')
+        self.assertEqual(self.saidas()[0]['observacao'], '[Avaria] Embalagem rasgada')
+
+        movements = self.client.get('/api/movimentacoes', headers=self.owner_headers).get_json()['items']
+        saida = next(item for item in movements if item['tipo'] == 'SAIDA')
+        self.assertEqual(saida['motivo'], 'Avaria')
+        self.assertEqual(saida['observacao'], 'Embalagem rasgada')
+
     def test_motivo_invalido_e_recusado(self):
         response = self.registrar_saida(10, 1, motivo='Roubo')
 
