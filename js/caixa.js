@@ -359,34 +359,26 @@ const finalizeSale = async () => {
   saleInProgress = true;
   if (finalizeSaleButton) finalizeSaleButton.disabled = true;
 
-  const usuario = getSessionUser()?.login || 'operador';
-
   try {
-    const sales = cart.map((item) => ({
-      tipo: 'SAIDA',
-      id_produto: item.id_produto,
-      quantidade: item.quantidade,
-      motivo: 'venda',
-      observacao: `Venda via caixa - ${selectedMethod}`,
-      usuario
-    }));
+    // Uma única chamada: o servidor grava a venda inteira ou não grava nada.
+    const response = await apiClient.fetch(`${API_BASE_URL}/api/vendas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        itens: cart.map((item) => ({
+          id_produto: item.id_produto,
+          quantidade: item.quantidade
+        })),
+        forma_pagamento: selectedMethod
+      })
+    });
 
-    const results = [];
-    for (const move of sales) {
-      const response = await apiClient.fetch(`${API_BASE_URL}/api/movimentacoes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(move)
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || 'Não foi possível registrar a venda.');
-      }
-      results.push(data);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || 'Não foi possível registrar a venda.');
     }
 
-    window.alert('Venda concluída com sucesso.');
+    window.alert(data.message || 'Venda concluída com sucesso.');
     cart.length = 0;
     renderCart();
   } catch (error) {

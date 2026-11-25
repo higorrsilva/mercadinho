@@ -239,6 +239,87 @@ class EstoqueTests(unittest.TestCase):
         self.assertEqual(response.get_json()['motivo'], 'Venda')
         self.assertEqual(self.saidas()[0]['observacao'], '[Venda] Venda via caixa - PIX')
 
+    def registrar_venda(self, itens, forma_pagamento='PIX', headers=None):
+        return self.client.post('/api/vendas', json={
+            'itens': itens, 'forma_pagamento': forma_pagamento
+        }, headers=headers or self.cashier_headers)
+
+    def test_venda_do_caixa_grava_todos_os_itens_de_uma_vez(self):
+        response = self.registrar_venda([
+            {'id_produto': 10, 'quantidade': 5},
+            {'id_produto': 11, 'quantidade': 1},
+        ])
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        # Arroz: 3 do lote 100 + 2 do lote 101; Leite: 1 do lote 102 (vence primeiro).
+        self.assertEqual(payload['valor_total'], '105.00')
+        self.assertEqual(len(payload['ids_movimentacao']), 3)
+        self.assertEqual(self.lote(100)['quantidade'], '0')
+        self.assertEqual(self.lote(101)['quantidade'], '8')
+        self.assertEqual(self.lote(102)['quantidade'], '3')
+        self.assertEqual(
+            [(row['id_lote'], row['quantidade']) for row in self.saidas()],
+            [(100, '3'), (101, '2'), (102, '1')]
+        )
+        self.assertTrue(all(row['observacao'] == '[Venda] Venda via caixa - PIX' for row in self.saidas()))
+        self.assertTrue(all(row['id_usuario'] == 2 for row in self.saidas()))
+
+    def test_venda_com_item_sem_estoque_nao_grava_nada(self):
+        response = self.registrar_venda([
+            {'id_produto': 10, 'quantidade': 2},
+            {'id_produto': 11, 'quantidade': 6},
+        ])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Leite 1L', response.get_json()['message'])
+        self.assertEqual(self.lote(100)['quantidade'], '3')
+        self.assertEqual(self.lote(102)['quantidade'], '4')
+        self.assertEqual(self.saidas(), [])
+
+    def test_venda_soma_itens_repetidos_ao_conferir_o_estoque(self):
+        response = self.registrar_venda([
+            {'id_produto': 11, 'quantidade': 3},
+            {'id_produto': 11, 'quantidade': 3},
+        ])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.saidas(), [])
+
+    def test_falha_no_meio_da_venda_desfaz_tudo(self):
+        # Grava as 2 movimentações do arroz e falha na do leite.
+        self.db.fail_on('movimentacao', 'insert', after=2)
+
+        response = self.registrar_venda([
+            {'id_produto': 10, 'quantidade': 5},
+            {'id_produto': 11, 'quantidade': 1},
+        ])
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(self.lote(100)['quantidade'], '3')
+        self.assertEqual(self.lote(101)['quantidade'], '10')
+        self.assertEqual(self.lote(102)['quantidade'], '4')
+        self.assertEqual(self.saidas(), [])
+
+    def test_venda_com_forma_de_pagamento_invalida_e_recusada(self):
+        response = self.registrar_venda([{'id_produto': 10, 'quantidade': 1}], forma_pagamento='FIADO')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.saidas(), [])
+
+    def test_venda_exige_permissao_de_caixa_ou_saidas(self):
+        self.db.tables['usuario'].append({
+            'id_usuario': 3, 'nome': 'Estoquista', 'login': 'estoque', 'tipo': 'FUNCIONARIO',
+            'ativo': True, 'permissoes': ['entradas']
+        })
+        serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'], salt='mercadinho-auth')
+        headers = {'Authorization': f"Bearer {serializer.dumps({'id_usuario': 3})}"}
+
+        response = self.registrar_venda([{'id_produto': 10, 'quantidade': 1}], headers=headers)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.saidas(), [])
+
 
 if __name__ == '__main__':
     unittest.main()

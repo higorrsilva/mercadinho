@@ -33,6 +33,7 @@ PERMISSOES_PADRAO_FUNCIONARIO = ('painel', 'caixa', 'entradas', 'saidas', 'produ
 # então um fuso fixo evita depender do pacote tzdata no Windows.
 FUSO_HORARIO = timezone(timedelta(hours=-3), 'America/Sao_Paulo')
 MOTIVOS_SAIDA = ('Venda', 'Perda', 'Vencimento', 'Avaria')
+FORMAS_PAGAMENTO = ('DINHEIRO', 'CARTAO', 'PIX')
 MOTIVO_NA_OBSERVACAO = re.compile(r'^\[(Venda|Perda|Vencimento|Avaria)\]\s*(.*)$', re.DOTALL)
 
 logger = logging.getLogger('mercadinho')
@@ -721,6 +722,37 @@ def undo_exit(changed_lots, created_movements):
         atualizar_saldo_lote(lot_id, previous_quantity)
 
 
+def gravar_plano_saida(product_id, plan, usuario, valor_unitario, observacao, data_movimentacao,
+                       changed_lots, created_movements):
+    """Baixa os lotes do plano FEFO e grava uma movimentação SAIDA por lote consumido.
+
+    Vai anotando em changed_lots e created_movements o que gravou, para quem chamou
+    poder desfazer tudo com undo_exit. Devolve False se alguma gravação falhar.
+    """
+    for lot, used in plan:
+        lot_id = lot.get('id_lote')
+        previous_quantity = lot_balance(lot)
+        if not atualizar_saldo_lote(lot_id, previous_quantity - used):
+            return False
+        changed_lots.append((lot_id, previous_quantity))
+
+        movimentacao = safe_insert('movimentacao', {
+            'id_produto': int(product_id),
+            'id_lote': lot_id,
+            'id_usuario': usuario.get('id_usuario'),
+            'tipo': 'SAIDA',
+            'quantidade': str(used),
+            'valor_total': str(decimal_money(used * valor_unitario)),
+            'valor_unitario': str(decimal_money(valor_unitario)),
+            'data_movimentacao': data_movimentacao,
+            'observacao': observacao
+        })
+        if movimentacao is None:
+            return False
+        created_movements.append(movimentacao)
+    return True
+
+
 @app.get('/api/health')
 def health():
     return jsonify({
@@ -1398,30 +1430,12 @@ def create_movement():
         changed_lots = []
         created_movements = []
 
-        # Uma movimentação por lote consumido, para o rastreio e o estorno por lote.
-        for lot, used in plan:
-            lot_id = lot.get('id_lote')
-            previous_quantity = lot_balance(lot)
-            if not atualizar_saldo_lote(lot_id, previous_quantity - used):
-                undo_exit(changed_lots, created_movements)
-                return jsonify({'ok': False, 'message': 'Não foi possível registrar a saída. Nada foi gravado.'}), 500
-            changed_lots.append((lot_id, previous_quantity))
-
-            movimentacao = safe_insert('movimentacao', {
-                'id_produto': int(product_id),
-                'id_lote': lot_id,
-                'id_usuario': usuario.get('id_usuario'),
-                'tipo': 'SAIDA',
-                'quantidade': str(used),
-                'valor_total': str(decimal_money(used * valor_unitario)),
-                'valor_unitario': str(decimal_money(valor_unitario)),
-                'data_movimentacao': data_movimentacao,
-                'observacao': observacao
-            })
-            if movimentacao is None:
-                undo_exit(changed_lots, created_movements)
-                return jsonify({'ok': False, 'message': 'Não foi possível registrar a saída. Nada foi gravado.'}), 500
-            created_movements.append(movimentacao)
+        if not gravar_plano_saida(
+            product_id, plan, usuario, valor_unitario, observacao, data_movimentacao,
+            changed_lots, created_movements
+        ):
+            undo_exit(changed_lots, created_movements)
+            return jsonify({'ok': False, 'message': 'Não foi possível registrar a saída. Nada foi gravado.'}), 500
 
         return jsonify({
             'ok': True,
@@ -1434,6 +1448,81 @@ def create_movement():
         }), 200
 
     return jsonify({'ok': False, 'message': 'Tipo de movimentação inválido.'}), 400
+
+
+@app.post('/api/vendas')
+@login_required
+@permissao_qualquer('caixa', 'saidas')
+def create_sale():
+    """Registra a venda do caixa inteira de uma vez: ou grava todos os itens, ou nenhum."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'ok': False, 'message': 'Dados da venda inválidos.'}), 400
+
+    forma_pagamento = str(payload.get('forma_pagamento') or 'DINHEIRO').strip().upper()
+    if forma_pagamento not in FORMAS_PAGAMENTO:
+        return jsonify({'ok': False, 'message': 'Forma de pagamento inválida.'}), 400
+
+    itens = payload.get('itens')
+    if not isinstance(itens, list) or not itens:
+        return jsonify({'ok': False, 'message': 'Adicione ao menos um item à venda.'}), 400
+
+    # Junta itens repetidos do mesmo produto para conferir o estoque pelo total.
+    quantidades = {}
+    for item in itens:
+        if not isinstance(item, dict):
+            return jsonify({'ok': False, 'message': 'Item da venda inválido.'}), 400
+        try:
+            product_id = int(item.get('id_produto'))
+            quantidade = parse_decimal(item.get('quantidade', 0))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'message': 'Item da venda inválido.'}), 400
+        if quantidade <= 0:
+            return jsonify({'ok': False, 'message': 'Quantidade deve ser maior que zero.'}), 400
+        quantidades[product_id] = quantidades.get(product_id, Decimal('0')) + quantidade
+
+    # Primeiro confere TODOS os itens; só depois grava alguma coisa.
+    planos = []
+    for product_id, quantidade in quantidades.items():
+        product = get_product_by_id(product_id)
+        if not product:
+            return jsonify({'ok': False, 'message': 'Produto não encontrado.'}), 404
+        nome = product.get('nome') or 'Produto'
+        plan = plan_fefo_exit(product_id, quantidade)
+        if plan is None:
+            return jsonify({
+                'ok': False,
+                'message': f'Estoque insuficiente para {nome}. Nada foi gravado.'
+            }), 400
+        try:
+            valor_unitario = parse_decimal(product.get('preco', 0))
+        except ValueError:
+            valor_unitario = Decimal('0')
+        planos.append((product_id, quantidade, plan, valor_unitario))
+
+    usuario = g.usuario_autenticado
+    observacao = build_exit_note('Venda', f'Venda via caixa - {forma_pagamento}')
+    data_movimentacao = agora().isoformat(timespec='seconds')
+    changed_lots = []
+    created_movements = []
+    valor_total = Decimal('0')
+
+    for product_id, quantidade, plan, valor_unitario in planos:
+        if not gravar_plano_saida(
+            product_id, plan, usuario, valor_unitario, observacao, data_movimentacao,
+            changed_lots, created_movements
+        ):
+            undo_exit(changed_lots, created_movements)
+            return jsonify({'ok': False, 'message': 'Não foi possível registrar a venda. Nada foi gravado.'}), 500
+        valor_total += decimal_money(quantidade * valor_unitario)
+
+    return jsonify({
+        'ok': True,
+        'message': 'Venda concluída com sucesso.',
+        'forma_pagamento': forma_pagamento,
+        'ids_movimentacao': [item.get('id_movimentacao') for item in created_movements],
+        'valor_total': str(decimal_money(valor_total))
+    }), 200
 
 
 @app.get('/api/lotes')
