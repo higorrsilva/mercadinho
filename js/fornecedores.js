@@ -82,19 +82,25 @@ const updateSupplierStats = async () => {
 
     const activeCount = items.filter((item) => item.ativo !== false).length;
     const inactiveCount = items.length - activeCount;
-    const lastCreated = items.slice().sort((a, b) => new Date(b.id_fornecedor || 0) - new Date(a.id_fornecedor || 0))[0];
+    // "Último cadastro" usa a coluna created_at. Sem ela no banco, mostra "—" (não inventa data).
+    const withDate = items
+      .map((item) => ({ item, date: item.created_at ? new Date(item.created_at) : null }))
+      .filter(({ date }) => date && !Number.isNaN(date.getTime()));
+    const lastCreated = withDate.sort((a, b) => b.date - a.date)[0] || null;
 
     cards[0].textContent = String(items.length);
     cards[1].textContent = String(inactiveCount);
     cards[2].textContent = String(activeCount);
-    cards[3].textContent = lastCreated ? 'Cadastrado' : '—';
+    cards[3].textContent = lastCreated ? lastCreated.date.toLocaleDateString('pt-BR') : '—';
 
     const badges = document.querySelectorAll('.badge');
     if (badges.length) {
       badges[0].textContent = `${items.length} fornecedores`;
       badges[1].textContent = inactiveCount ? `${inactiveCount} inativos` : 'Sem inativos';
       badges[2].textContent = activeCount ? `${activeCount} ativos` : 'Sem ativos';
-      badges[3].textContent = lastCreated ? 'Atualizado' : 'Sem dados';
+      badges[3].textContent = lastCreated
+        ? (lastCreated.item.nome || 'Fornecedor')
+        : (items.length ? 'Sem data de cadastro' : 'Sem dados');
     }
   } catch (error) {
     cards.forEach((node) => {
