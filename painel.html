@@ -97,7 +97,6 @@
             <p>Resumo do dia</p>
           </div>
 
-          <button class="primary-button" type="button" data-open-movement onclick="document.getElementById('movement-modal').classList.add('is-open'); document.getElementById('movement-modal').setAttribute('aria-hidden', 'false');">+ Nova movimentação</button>
         </header>
 
         <section class="stats-grid" aria-label="Resumo do painel">
@@ -212,79 +211,6 @@
           </div>
         </section>
       </main>
-    </div>
-
-    <div class="modal-frame-label">Pop-up de entrada e saída</div>
-
-    <div class="modal-backdrop" id="movement-modal" aria-hidden="true">
-      <form class="movement-modal" id="movement-form" role="dialog" aria-modal="true" aria-labelledby="movement-title">
-        <div class="modal-header">
-          <div class="modal-header-copy">
-            <h2 id="movement-title">Registrar Movimentação</h2>
-            <p class="modal-subtitle">Anote a entrada ou saída de produtos do estoque.</p>
-          </div>
-          <button class="close-button" type="button" aria-label="Fechar" data-close-movement onclick="document.getElementById('movement-modal').classList.remove('is-open'); document.getElementById('movement-modal').setAttribute('aria-hidden', 'true');">×</button>
-        </div>
-
-        <div class="movement-type" aria-label="Tipo de movimentação">
-          <button class="movement-option active" type="button" data-movement-type="entrada" aria-pressed="true" onclick="document.querySelectorAll('.movement-option').forEach((item) => { item.classList.remove('active'); item.setAttribute('aria-pressed','false'); }); this.classList.add('active'); this.setAttribute('aria-pressed','true');">
-            <span class="option-icon">↓</span>
-            <span>Entrada de estoque</span>
-          </button>
-          <button class="movement-option" type="button" data-movement-type="saida" aria-pressed="false" onclick="document.querySelectorAll('.movement-option').forEach((item) => { item.classList.remove('active'); item.setAttribute('aria-pressed','false'); }); this.classList.add('active'); this.setAttribute('aria-pressed','true');">
-            <span class="option-icon">↑</span>
-            <span>Saída de estoque</span>
-          </button>
-        </div>
-
-        <div class="field-group">
-          <label for="movement-product">Produto <span class="required">*</span></label>
-          <div class="field-shell select-shell">
-            <select id="movement-product" required>
-              <option value="">Busque por nome, ex: Arroz Tipo 1 - 5kg</option>
-            </select>
-            <span class="chevron">⌄</span>
-          </div>
-        </div>
-
-        <div class="two-columns">
-          <div class="field-group">
-            <label for="movement-quantity">Quantidade <span class="required">*</span></label>
-            <div class="field-shell">
-              <input id="movement-quantity" type="number" min="0.01" step="0.01" value="0" placeholder="0" required />
-            </div>
-          </div>
-
-          <div class="field-group">
-            <label for="movement-value">Valor total (R$)</label>
-            <div class="field-shell">
-              <input id="movement-value" type="text" inputmode="decimal" placeholder="R$ 0,00" />
-            </div>
-          </div>
-        </div>
-
-        <div class="field-group">
-          <label for="movement-provider">Fornecedor / Origem</label>
-          <div class="field-shell">
-            <input id="movement-provider" type="text" placeholder="Ex: Atacadão" />
-          </div>
-        </div>
-
-        <div class="field-group">
-          <label for="movement-observation">Observação <span class="optional">(opcional)</span></label>
-          <div class="field-shell textarea-shell">
-            <textarea id="movement-observation" rows="3" placeholder="Ex: Entrega semanal, Promoção"></textarea>
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button class="secondary-modal-button" type="button" data-close-movement onclick="document.getElementById('movement-modal').classList.remove('is-open'); document.getElementById('movement-modal').setAttribute('aria-hidden', 'true');">Cancelar</button>
-          <button class="primary-modal-button" type="submit">
-            <span class="plus">+</span>
-            <span>Salvar registro</span>
-          </button>
-        </div>
-      </form>
     </div>
 
     <script src="js/feedback.js"></script>

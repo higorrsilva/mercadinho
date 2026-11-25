@@ -85,9 +85,30 @@ def serve_usuarios_alias():
 
 @app.route('/<path:filename>')
 def serve_static(filename):
-    if filename.startswith('api/'):
-        return '', 404
+    if filename == 'api' or filename.startswith('api/'):
+        return jsonify({'ok': False, 'message': 'Rota da API não encontrada.'}), 404
     return send_from_directory(app.static_folder, filename)
+
+
+def _api_http_error(error, status_code, message):
+    if request.path == '/api' or request.path.startswith('/api/'):
+        return jsonify({'ok': False, 'message': message}), status_code
+    return error
+
+
+@app.errorhandler(404)
+def handle_not_found(error):
+    return _api_http_error(error, 404, 'Rota da API não encontrada.')
+
+
+@app.errorhandler(405)
+def handle_method_not_allowed(error):
+    return _api_http_error(error, 405, 'Método não permitido para esta rota da API.')
+
+
+@app.errorhandler(500)
+def handle_internal_server_error(error):
+    return _api_http_error(error, 500, 'Erro interno do servidor.')
 
 
 @app.after_request
@@ -1001,6 +1022,27 @@ def update_product(product_id):
         'id_produto': product_id,
         'nome': str(updated.get('nome') or nome),
         'preco': str(decimal_money(updated.get('preco', preco)))
+    }), 200
+
+
+@app.delete('/api/produtos/<int:product_id>')
+@login_required
+@permissao('produtos')
+def delete_product(product_id):
+    product = get_product_by_id(product_id)
+    if not product:
+        return jsonify({'ok': False, 'message': 'Produto não encontrado.'}), 404
+
+    try:
+        supabase.table('produto').update({'ativo': False}).eq('id_produto', product_id).execute()
+    except Exception:
+        return jsonify({'ok': False, 'message': 'Não foi possível inativar o produto.'}), 500
+
+    return jsonify({
+        'ok': True,
+        'message': 'Produto inativado com sucesso.',
+        'id_produto': product_id,
+        'ativo': False
     }), 200
 
 

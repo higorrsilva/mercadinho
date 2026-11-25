@@ -137,3 +137,19 @@
   background: #d86c38;
   color: #fff;
 }
+
+.delete-movement-button {
+  border: 0;
+  border-radius: 8px;
+  background: var(--red-bg, #f8d9d2);
+  color: var(--red-text, #b14d2d);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 10px;
+  min-width: 78px;
+  transition: background-color 0.15s ease;
+}
+
+.delete-movement-button:hover {
+  background: #efc4b8;
+}

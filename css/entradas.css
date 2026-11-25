@@ -465,17 +465,6 @@ tbody tr:last-child td {
   text-align: center;
 }
 
-.delete-movement-button {
-  border: 0;
-  border-radius: 8px;
-  background: var(--red-bg, #f8d9d2);
-  color: var(--red-text, #b14d2d);
-  font-size: 13px;
-  font-weight: 700;
-  padding: 8px 10px;
-  min-width: 78px;
-}
-
 .table-footer {
   margin-top: 18px;
   display: flex;

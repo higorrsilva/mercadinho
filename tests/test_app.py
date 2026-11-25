@@ -682,6 +682,42 @@ class AuthenticationTests(unittest.TestCase):
             'GET, POST, PUT, DELETE, OPTIONS'
         )
 
+    def test_api_not_found_and_method_not_allowed_return_json(self):
+        not_found_response = self.client.get('/api/rota-inexistente')
+        method_response = self.client.patch('/api/produtos')
+
+        self.assertEqual(not_found_response.status_code, 404)
+        self.assertTrue(not_found_response.is_json)
+        self.assertEqual(method_response.status_code, 405)
+        self.assertTrue(method_response.is_json)
+
+    def test_api_internal_error_returns_json(self):
+        def raise_internal_error():
+            raise RuntimeError('Falha simulada')
+
+        with patch.dict(app.view_functions, {'list_products': raise_internal_error}), \
+                patch.object(app, 'log_exception'):
+            response = self.client.get('/api/produtos')
+
+        self.assertEqual(response.status_code, 500)
+        self.assertTrue(response.is_json)
+
+    def test_delete_product_soft_deactivates_and_returns_json(self):
+        self.user['permissoes'] = ['produtos']
+        supabase_mock = Mock()
+        supabase_mock.table.return_value.update.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+            data=[{'id_produto': 42, 'ativo': False}]
+        )
+
+        with patch('app.get_product_by_id', return_value={'id_produto': 42, 'ativo': True}), \
+                patch('app.supabase', supabase_mock):
+            response = self.client.delete('/api/produtos/42', headers=self._headers())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.is_json)
+        self.assertEqual(response.get_json()['ativo'], False)
+        supabase_mock.table.return_value.update.assert_called_once_with({'ativo': False})
+
     def test_login_returns_signed_token_and_permissions(self):
         user = {
             'id_usuario': 123,

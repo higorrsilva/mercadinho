@@ -13,6 +13,30 @@ const productPageSize = 10;
 let currentProductPage = 1;
 let editingProductId = null;
 
+const readProductApiResponse = async (response, fallbackMessage) => {
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.toLowerCase().includes('application/json');
+
+  if (!response.ok) {
+    if (!isJson) {
+      throw new Error(fallbackMessage);
+    }
+
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.message || data?.erro || fallbackMessage);
+  }
+
+  if (!isJson) {
+    throw new Error('O servidor retornou uma resposta inválida. Tente novamente.');
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    throw new Error('O servidor retornou uma resposta inválida. Tente novamente.');
+  }
+};
+
 const renderProductPagination = (totalItems) => {
   const pagination = document.querySelector('.table-footer .pagination');
   const footerText = document.querySelector('.table-footer > span');
@@ -59,7 +83,7 @@ const updateProductsStats = async () => {
 
   try {
     const response = await apiClient.fetch(`${API_BASE_URL}/api/produtos`);
-    const payload = await response.json();
+    const payload = await readProductApiResponse(response, 'Não foi possível carregar os dados dos produtos.');
     const items = Array.isArray(payload?.items) ? payload.items : [];
 
     const lowStock = items.filter((item) => Number(item.estoque_atual || 0) <= Number(item.estoque_minimo || 0)).length;
@@ -81,19 +105,31 @@ const updateProductsStats = async () => {
     cards.forEach((node) => {
       node.textContent = '—';
     });
+    document.querySelectorAll('.badge').forEach((node) => {
+      node.textContent = 'Não foi possível carregar';
+    });
   }
 };
 
 const openProductModal = (product = null) => {
   if (!productModal) return;
 
+  productForm?.reset();
+  editingProductId = null;
+
   const title = document.getElementById('product-title');
   const subtitle = document.getElementById('product-subtitle');
   const submitButton = document.getElementById('product-submit-button');
 
   if (product) {
-    editingProductId = product.id_produto;
-    productDeleteButton.hidden = false;
+    const productId = Number(product.id_produto);
+    if (!Number.isSafeInteger(productId) || productId <= 0) {
+      window.alert('Não foi possível editar o produto: identificador inválido.');
+      return;
+    }
+
+    editingProductId = productId;
+    if (productDeleteButton) productDeleteButton.hidden = false;
     title.textContent = 'Editar Produto';
     subtitle.textContent = 'Atualize as informações do produto no estoque.';
     submitButton.innerHTML = '<span class="plus">✓</span> Salvar';
@@ -106,12 +142,10 @@ const openProductModal = (product = null) => {
     document.getElementById('product-active').checked = product.ativo !== false;
     document.getElementById('product-category').value = product.id_categoria || '';
   } else {
-    editingProductId = null;
     if (productDeleteButton) productDeleteButton.hidden = true;
-    title.textContent = 'Adicionar Produto';
-    subtitle.textContent = 'Cadastre um novo produto no estoque.';
-    submitButton.innerHTML = '<span class="plus">+</span> Adicionar';
-    productForm?.reset();
+    title.textContent = 'Cadastrar Produto';
+    subtitle.textContent = 'Preencha as informações do novo produto.';
+    submitButton.innerHTML = '<span class="plus">+</span> Salvar';
     const activeCheck = document.getElementById('product-active');
     if (activeCheck) activeCheck.checked = true;
   }
@@ -131,20 +165,16 @@ const closeProductModal = () => {
   const title = document.getElementById('product-title');
   const subtitle = document.getElementById('product-subtitle');
   const submitButton = document.getElementById('product-submit-button');
-  if (title) title.textContent = 'Adicionar Produto';
-  if (subtitle) subtitle.textContent = 'Cadastre um novo produto no estoque.';
-  if (submitButton) submitButton.innerHTML = '<span class="plus">+</span> Adicionar';
+  if (title) title.textContent = 'Cadastrar Produto';
+  if (subtitle) subtitle.textContent = 'Preencha as informações do novo produto.';
+  if (submitButton) submitButton.innerHTML = '<span class="plus">+</span> Salvar';
   if (productDeleteButton) productDeleteButton.hidden = true;
 };
 
 async function fetchCategories() {
-  try {
-    const response = await apiClient.fetch(`${API_BASE_URL}/api/categorias`);
-    const payload = await response.json();
-    return Array.isArray(payload?.items) ? payload.items : [];
-  } catch (error) {
-    return [];
-  }
+  const response = await apiClient.fetch(`${API_BASE_URL}/api/categorias`);
+  const payload = await readProductApiResponse(response, 'Não foi possível carregar as categorias.');
+  return Array.isArray(payload?.items) ? payload.items : [];
 }
 
 async function loadCategories() {
@@ -304,7 +334,7 @@ const renderProducts = async () => {
 
   try {
     const response = await apiClient.fetch(`${API_BASE_URL}/api/produtos`);
-    const payload = await response.json();
+    const payload = await readProductApiResponse(response, 'Não foi possível carregar os produtos.');
     const items = Array.isArray(payload?.items) ? payload.items : [];
     const filteredItems = applyProductFilters(items);
     const totalPages = Math.max(1, Math.ceil(filteredItems.length / productPageSize));
@@ -386,6 +416,11 @@ productForm?.addEventListener('submit', async (event) => {
 
   try {
     const isEditing = editingProductId !== null;
+    if (isEditing && (!Number.isSafeInteger(editingProductId) || editingProductId <= 0)) {
+      window.alert('Não foi possível editar o produto: identificador inválido.');
+      return;
+    }
+
     const url = isEditing ? `${API_BASE_URL}/api/produtos/${editingProductId}` : `${API_BASE_URL}/api/produtos`;
     const method = isEditing ? 'PUT' : 'POST';
 
@@ -395,10 +430,10 @@ productForm?.addEventListener('submit', async (event) => {
       body: JSON.stringify(payload)
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || (isEditing ? 'Não foi possível atualizar o produto.' : 'Não foi possível cadastrar o produto.'));
-    }
+    const data = await readProductApiResponse(
+      response,
+      isEditing ? 'Não foi possível atualizar o produto.' : 'Não foi possível cadastrar o produto.'
+    );
 
     window.alert(data.message || (isEditing ? 'Produto atualizado com sucesso.' : 'Produto cadastrado com sucesso.'));
     closeProductModal();
@@ -410,28 +445,20 @@ productForm?.addEventListener('submit', async (event) => {
 });
 
 const initializeProductModal = () => {
-  openProductButton?.addEventListener('click', openProductModal);
+  openProductButton?.addEventListener('click', () => openProductModal());
   closeProductButtons.forEach((button) => button.addEventListener('click', closeProductModal));
   productDeleteButton?.addEventListener('click', async () => {
     if (editingProductId === null) return;
     const confirmed = await showConfirm('Deseja inativar este produto? A ação mantém o histórico e remove o produto da visualização ativa.');
+    if (!confirmed) return;
+
     try {
       const response = await apiClient.fetch(`${API_BASE_URL}/api/produtos/${editingProductId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ativo: false,
-          nome: document.getElementById('product-name')?.value?.trim() || '',
-          id_categoria: Number(document.getElementById('product-category')?.value || 0),
-          codigo_barras: document.getElementById('product-barcode')?.value?.trim() || '',
-          unidade_medida: document.getElementById('product-unit')?.value?.trim() || '',
-          estoque_minimo: document.getElementById('product-min-stock')?.value || 0,
-          preco: document.getElementById('product-price')?.value || 0
-        })
+        method: 'DELETE'
       });
 
-      const data = await response.json();
-      if (!response.ok) {
+      const data = await readProductApiResponse(response, 'Não foi possível inativar o produto.');
+      if (!data.ok) {
         throw new Error(data.message || 'Não foi possível inativar o produto.');
       }
 
@@ -453,6 +480,8 @@ const initializeProductModal = () => {
 
 initializeProductModal();
 setupFilterDropdowns();
-loadCategories();
+loadCategories().catch((error) => {
+  window.alert(error.message || 'Não foi possível carregar as categorias.');
+});
 renderProducts();
 updateProductsStats();
