@@ -22,6 +22,7 @@ let selectedMethod = 'DINHEIRO';
 let selectedProduct = null;
 let productCatalog = [];
 let productCatalogLoading = false;
+let saleInProgress = false;
 
 const formatMoney = (value) => {
   const number = Number(value || 0);
@@ -345,10 +346,18 @@ const clearCart = async () => {
 };
 
 const finalizeSale = async () => {
+  // Trava contra clique duplo: enquanto a venda é enviada, novos cliques são ignorados.
+  if (saleInProgress) {
+    return;
+  }
+
   if (!cart.length) {
     window.alert('Adicione ao menos um item para finalizar a venda.');
     return;
   }
+
+  saleInProgress = true;
+  if (finalizeSaleButton) finalizeSaleButton.disabled = true;
 
   const usuario = getSessionUser()?.login || 'operador';
 
@@ -382,6 +391,9 @@ const finalizeSale = async () => {
     renderCart();
   } catch (error) {
     window.alert(error.message || 'Erro ao finalizar a venda.');
+  } finally {
+    saleInProgress = false;
+    if (finalizeSaleButton) finalizeSaleButton.disabled = false;
   }
 };
 
