@@ -1,4 +1,4 @@
-import apiClient from '../services/api/client.js';
+import apiClient, { escapeHtml } from '../services/api/client.js';
 import './session.js';
 
 const tbody = document.getElementById('fornecedores-table-body');
@@ -255,12 +255,12 @@ const renderSuppliers = async () => {
       const tagClass = status === 'Ativo' ? 'positive' : 'warning';
       return `
         <tr>
-          <td><span class="product-cell"><span class="product-thumb"></span>${item.nome || 'Fornecedor'}</span></td>
-          <td>${item.telefone || '—'}</td>
-          <td>${item.email || '—'}</td>
+          <td><span class="product-cell"><span class="product-thumb"></span>${escapeHtml(item.nome || 'Fornecedor')}</span></td>
+          <td>${escapeHtml(item.telefone || '—')}</td>
+          <td>${escapeHtml(item.email || '—')}</td>
           <td><span class="product-tag ${tagClass}">${status}</span></td>
           <td class="action-cell">
-            <button class="edit-product-button" type="button" data-edit-supplier="${item.id_fornecedor}" aria-label="Editar fornecedor ${item.nome || 'fornecedor'}">✎</button>
+            <button class="edit-product-button" type="button" data-edit-supplier="${escapeHtml(item.id_fornecedor)}" aria-label="Editar fornecedor ${escapeHtml(item.nome || 'fornecedor')}">✎</button>
           </td>
         </tr>
       `;

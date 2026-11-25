@@ -1,4 +1,4 @@
-import apiClient, { getSessionUser, isOwner } from '../services/api/client.js';
+import apiClient, { escapeHtml, getSessionUser, isOwner } from '../services/api/client.js';
 import './session.js';
 
 // Data e hora no formato brasileiro (dd/mm/aaaa hh:mm), no fuso do navegador.
@@ -111,7 +111,7 @@ async function loadExitReferenceProducts() {
     const items = Array.isArray(payload?.items) ? payload.items : [];
 
     exitProductSelect.innerHTML = '<option value="">Selecione o produto</option>' + items
-      .map((item) => `<option value="${item.id_produto}">${item.nome}</option>`)
+      .map((item) => `<option value="${escapeHtml(item.id_produto)}">${escapeHtml(item.nome)}</option>`)
       .join('');
   } catch (error) {
     exitProductSelect.innerHTML = '<option value="">Erro ao carregar</option>';
@@ -247,14 +247,14 @@ const renderExits = async () => {
 
     tbody.innerHTML = pageItems.map((item) => `
       <tr>
-        <td>${formatDateTime(item.data_movimentacao)}</td>
-        <td>${item.motivo || item.observacao || 'Venda'}</td>
-        <td>${item.produto || 'Produto'}</td>
-        <td>${item.quantidade || 0}</td>
+        <td>${escapeHtml(formatDateTime(item.data_movimentacao))}</td>
+        <td>${escapeHtml(item.motivo || item.observacao || 'Venda')}</td>
+        <td>${escapeHtml(item.produto || 'Produto')}</td>
+        <td>${escapeHtml(item.quantidade || 0)}</td>
         <td>R$ ${Number(item.valor_total || item.valor_unitario || item.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td>${item.observacao || '—'}</td>
+        <td>${escapeHtml(item.observacao || '—')}</td>
         <td class="action-cell">
-          ${isOwner() ? `<button class="delete-movement-button" type="button" data-delete-movement="${item.id_movimentacao || ''}" aria-label="Excluir saída">Excluir</button>` : ''}
+          ${isOwner() ? `<button class="delete-movement-button" type="button" data-delete-movement="${escapeHtml(item.id_movimentacao || '')}" aria-label="Excluir saída">Excluir</button>` : ''}
         </td>
       </tr>
     `).join('');

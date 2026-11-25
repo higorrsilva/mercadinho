@@ -1,4 +1,4 @@
-import apiClient, { getSessionUser } from '../services/api/client.js';
+import apiClient, { escapeHtml, getSessionUser } from '../services/api/client.js';
 import './session.js';
 
 const barcodeInput = document.getElementById('barcode-input');
@@ -103,11 +103,11 @@ const renderCart = () => {
       <tr>
         <td>
           <div class="cart-item-name">
-            <strong>${item.nome}</strong>
-            <span>${item.codigo_barras || 'Sem código'}</span>
+            <strong>${escapeHtml(item.nome)}</strong>
+            <span>${escapeHtml(item.codigo_barras || 'Sem código')}</span>
           </div>
         </td>
-        <td>${item.quantidade}</td>
+        <td>${escapeHtml(item.quantidade)}</td>
         <td>${formatMoney(item.preco)}</td>
         <td>${formatMoney(totalItem)}</td>
         <td><button class="checkout-remove" type="button" data-remove-item="${index}">Excluir</button></td>
@@ -161,9 +161,9 @@ const renderProductPreview = () => {
   productPreview.innerHTML = `
     <span class="preview-title">Produto selecionado</span>
     <div class="product-info">
-      <strong>${selectedProduct.nome}</strong>
-      <span>${selectedProduct.codigo_barras || 'Código sem código de barras'}</span>
-      <span>Estoque: ${selectedProduct.estoque_atual ?? 0} • ${formatMoney(selectedProduct.preco ?? 0)}</span>
+      <strong>${escapeHtml(selectedProduct.nome)}</strong>
+      <span>${escapeHtml(selectedProduct.codigo_barras || 'Código sem código de barras')}</span>
+      <span>Estoque: ${escapeHtml(selectedProduct.estoque_atual ?? 0)} • ${formatMoney(selectedProduct.preco ?? 0)}</span>
     </div>
   `;
 };

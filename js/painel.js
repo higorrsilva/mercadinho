@@ -1,4 +1,4 @@
-import apiClient from '../services/api/client.js';
+import apiClient, { escapeHtml } from '../services/api/client.js';
 import './session.js';
 
 // Data e hora no formato brasileiro (dd/mm/aaaa hh:mm), no fuso do navegador.
@@ -188,11 +188,11 @@ const renderMovementRows = async () => {
 
       return `
         <tr>
-          <td>${dataMovimentacao}</td>
-          <td><span class="tag ${tipo === 'SAIDA' ? 'saida' : 'entrada'}">${tipo}</span></td>
-          <td>${produto}</td>
-          <td>${quantidade}</td>
-          <td>${observacao}</td>
+          <td>${escapeHtml(dataMovimentacao)}</td>
+          <td><span class="tag ${tipo === 'SAIDA' ? 'saida' : 'entrada'}">${escapeHtml(tipo)}</span></td>
+          <td>${escapeHtml(produto)}</td>
+          <td>${escapeHtml(quantidade)}</td>
+          <td>${escapeHtml(observacao)}</td>
           <td class="arrow-col">→</td>
         </tr>
       `;

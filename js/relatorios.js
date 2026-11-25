@@ -1,4 +1,4 @@
-import apiClient from '../services/api/client.js';
+import apiClient, { escapeHtml } from '../services/api/client.js';
 import './session.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -209,9 +209,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           const height = Math.max(14, (value / maxValue) * 100);
           return `
             <div class="bar-group">
-              <span class="bar-value">${value}</span>
+              <span class="bar-value">${escapeHtml(value)}</span>
               <div class="bar" style="height:${height}%"></div>
-              <span class="bar-label">${formatDay(date)}</span>
+              <span class="bar-label">${escapeHtml(formatDay(date))}</span>
             </div>
           `;
         }).join('');
@@ -242,7 +242,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         donutCenter.innerHTML = `<strong>${total}</strong><span>produtos</span>`;
         categoryLegend.innerHTML = entries.map(([name, value], index) => `
           <li>
-            <span style="display:inline-flex;align-items:center;gap:8px;"><span class="dot" style="background:${palette[index % palette.length]};"></span>${name}</span>
+            <span style="display:inline-flex;align-items:center;gap:8px;"><span class="dot" style="background:${palette[index % palette.length]};"></span>${escapeHtml(name)}</span>
             <strong>${Math.round((value / total) * 100)}%</strong>
           </li>
         `).join('');
@@ -270,11 +270,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>
                   <span class="product-cell">
                     <span class="thumb thumb-1"></span>
-                    ${productName}
+                    ${escapeHtml(productName)}
                   </span>
                 </td>
-                <td>${lot.id_lote || 'Lote'}</td>
-                <td>${formatDateBR(lot.validade)}${lot.tipo === 'LOTE_VENCIDO' ? ' (vencido)' : ''}</td>
+                <td>${escapeHtml(lot.id_lote || 'Lote')}</td>
+                <td>${escapeHtml(formatDateBR(lot.validade))}${lot.tipo === 'LOTE_VENCIDO' ? ' (vencido)' : ''}</td>
                 <td>${numberFormat(lot.quantidade)}</td>
               </tr>
             `;
@@ -324,8 +324,8 @@ document.addEventListener('DOMContentLoaded', async () => {
               <div class="alert-line">
                 <span class="alert-bullet"></span>
                 <div>
-                  <strong>${ALERT_LABELS[alert.tipo] || alert.tipo || 'Alerta'}</strong>
-                  <p>${alert.mensagem || 'Produto com atenção.'}</p>
+                  <strong>${escapeHtml(ALERT_LABELS[alert.tipo] || alert.tipo || 'Alerta')}</strong>
+                  <p>${escapeHtml(alert.mensagem || 'Produto com atenção.')}</p>
                 </div>
               </div>
             `).join('')
