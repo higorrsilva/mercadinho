@@ -356,6 +356,28 @@ class EstoqueTests(unittest.TestCase):
         self.assertEqual(entrada['id_fornecedor'], 1)
         self.assertEqual(entrada['fornecedor'], 'Atacadão')
 
+    def test_email_de_fornecedor_repetido_ignora_maiusculas(self):
+        self.db.tables['fornecedor'][0]['email'] = 'vendas@atacadao.com'
+
+        criar = self.client.post('/api/fornecedores', json={
+            'nome': 'Outro', 'email': 'Vendas@Atacadao.COM'
+        }, headers=self.owner_headers)
+        self.assertEqual(criar.status_code, 409)
+
+        outro_id = self.client.post('/api/fornecedores', json={
+            'nome': 'Outro', 'email': 'contato@outro.com'
+        }, headers=self.owner_headers).get_json()['id_fornecedor']
+        editar = self.client.put(f'/api/fornecedores/{outro_id}', json={
+            'email': ' VENDAS@atacadao.com '
+        }, headers=self.owner_headers)
+        self.assertEqual(editar.status_code, 409)
+
+        # O próprio fornecedor pode trocar só as maiúsculas do e-mail dele.
+        proprio = self.client.put('/api/fornecedores/1', json={
+            'email': 'VENDAS@ATACADAO.COM'
+        }, headers=self.owner_headers)
+        self.assertEqual(proprio.status_code, 200)
+
     def test_venda_exige_permissao_de_caixa_ou_saidas(self):
         self.db.tables['usuario'].append({
             'id_usuario': 3, 'nome': 'Estoquista', 'login': 'estoque', 'tipo': 'FUNCIONARIO',

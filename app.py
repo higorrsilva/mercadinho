@@ -973,6 +973,18 @@ def list_suppliers():
     return jsonify({'items': ordered}), 200
 
 
+def email_de_outro_fornecedor(email, supplier_id=None):
+    """True se outro fornecedor já usa este e-mail (sem diferenciar maiúsculas)."""
+    email = str(email or '').strip().lower()
+    if not email:
+        return False
+    return any(
+        str(supplier.get('email') or '').strip().lower() == email
+        and str(supplier.get('id_fornecedor')) != str(supplier_id)
+        for supplier in safe_query('fornecedor', '*')
+    )
+
+
 @app.post('/api/fornecedores')
 @login_required
 @permissao('fornecedores')
@@ -985,10 +997,8 @@ def create_supplier():
     if not nome:
         return jsonify({'ok': False, 'message': 'Nome do fornecedor é obrigatório.'}), 400
 
-    if email:
-        existing = safe_query('fornecedor', '*', email=email)
-        if existing:
-            return jsonify({'ok': False, 'message': 'E-mail já cadastrado para outro fornecedor.'}), 409
+    if email_de_outro_fornecedor(email):
+        return jsonify({'ok': False, 'message': 'E-mail já cadastrado para outro fornecedor.'}), 409
 
     supplier_payload = {
         'nome': nome,
@@ -1026,10 +1036,8 @@ def update_supplier(supplier_id):
     telefone = str(payload.get('telefone') if payload.get('telefone') is not None else existing[0].get('telefone') or '').strip()
     email = str(payload.get('email') if payload.get('email') is not None else existing[0].get('email') or '').strip()
 
-    if email:
-        duplicate = safe_query('fornecedor', '*', email=email)
-        if duplicate and duplicate[0].get('id_fornecedor') != supplier_id:
-            return jsonify({'ok': False, 'message': 'E-mail já cadastrado para outro fornecedor.'}), 409
+    if email_de_outro_fornecedor(email, supplier_id):
+        return jsonify({'ok': False, 'message': 'E-mail já cadastrado para outro fornecedor.'}), 409
 
     update_payload = {
         'nome': nome,
